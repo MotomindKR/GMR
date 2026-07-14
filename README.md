@@ -171,6 +171,7 @@ This repo is licensed under the [MIT License](LICENSE).
 | 15 | Tienkung `tienkung`  | Leg (2\*6) + Arm (2\*4) = 20 | ✅ | TBD | TBD | TBD |
 | 16 | PAL Robotics' Talos `pal_talos`  | Head (2) + Arm (2\*7) + Waist (2) + Leg (2\*6) = 30 | ✅ | TBD | TBD | TBD |
 | 17 | Fourier GR3 `fourier_gr3`  | Head (2) + Arm (2\*7) + Waist (3) + Leg (2\*6) = 31 | ✅ | TBD | TBD | TBD |
+| 20 | Bello `bello` | Head (2) + Arm (2\*6) + Waist yaw (1) + Leg (2\*6) = 27 | ✅ | TBD | TBD | TBD | TBD |
 | More robots coming soon ! |
 | 18 | AgiBot A2 `agibot_a2` | TBD | TBD | TBD | TBD | TBD |
 | 19 | OpenLoong `openloong` | TBD | TBD | TBD | TBD | TBD |
@@ -288,6 +289,22 @@ Retarget a single motion:
 ```bash
 python scripts/smplx_to_robot.py --smplx_file <path_to_smplx_data> --robot <path_to_robot_data> --save_path <path_to_save_robot_data.pkl> --rate_limit
 ```
+
+For Bello:
+
+```bash
+nix develop
+python scripts/smplx_to_robot.py \
+  --smplx_file <path_to_smplx_data> \
+  --robot bello \
+  --save_path <path_to_save_robot_data.pkl> \
+  --rate_limit
+```
+
+Bello uses a primitive-box collision model, has local `+Y` as its forward
+direction, and exposes waist yaw while waist roll and pitch are fixed. Asset
+generation and contact-matrix details are recorded in
+[`assets/bello/README.md`](assets/bello/README.md).
 
 By default you should see the visualization of the retargeted robot motion in a mujoco window.
 If you want to record video, add `--record_video` and `--video_path <your_video_path,mp4>`.

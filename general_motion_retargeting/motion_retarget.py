@@ -18,7 +18,8 @@ class GeneralMotionRetargeting:
         solver: str="daqp", # change from "quadprog" to "daqp".
         damping: float=5e-1, # change from 1e-1 to 1e-2.
         verbose: bool=True,
-        use_velocity_limit: bool=False,
+        use_velocity_limit: bool | None=None,
+        source_fps: float=30.0,
     ) -> None:
 
         # load the robot model
@@ -79,8 +80,16 @@ class GeneralMotionRetargeting:
         self.use_ik_match_table2 = ik_config["use_ik_match_table2"]
         self.human_scale_table = ik_config["human_scale_table"]
         self.ground = ik_config["ground_height"] * np.array([0, 0, 1])
+        if use_velocity_limit is None:
+            use_velocity_limit = ik_config.get("use_velocity_limit", False)
+        if source_fps <= 0.0:
+            raise ValueError("source_fps must be positive")
+        self.source_fps = source_fps
+        self.max_joint_velocity = ik_config.get("max_joint_velocity", 3 * np.pi)
+        self.velocity_limited_qpos_addresses = []
+        self.previous_output_qpos = None
 
-        self.max_iter = 10
+        self.max_iter = ik_config.get("max_iter", 10)
 
         self.solver = solver
         self.damping = damping
@@ -97,12 +106,92 @@ class GeneralMotionRetargeting:
 
         self.ik_limits = [mink.ConfigurationLimit(self.model)]
         if use_velocity_limit:
-            VELOCITY_LIMITS = {k: 3*np.pi for k in self.robot_motor_names.keys()}
+            actuator_joint_names = {
+                self.model.joint(self.model.actuator_trnid[actuator_id, 0]).name
+                for actuator_id in range(self.model.nu)
+            }
+            VELOCITY_LIMITS = {
+                joint_name: self.max_joint_velocity
+                for joint_name in actuator_joint_names
+            }
+            self.velocity_limited_qpos_addresses = [
+                int(self.model.joint(joint_name).qposadr[0])
+                for joint_name in actuator_joint_names
+            ]
             self.ik_limits.append(mink.VelocityLimit(self.model, VELOCITY_LIMITS)) 
+        self.add_collision_avoidance_limit(ik_config.get("collision_avoidance"))
             
         self.setup_retarget_configuration()
         
         self.ground_offset = 0.0
+
+    def add_collision_avoidance_limit(self, config):
+        if config is None:
+            return
+
+        if not config.get("use_model_contact_matrix", False):
+            raise ValueError(
+                "collision_avoidance requires use_model_contact_matrix=true"
+            )
+
+        self.ik_limits.append(
+            mink.CollisionAvoidanceLimit(
+                self.model,
+                self.model_collision_geom_pairs(),
+                gain=config.get("gain", 0.85),
+                minimum_distance_from_collisions=config.get(
+                    "minimum_distance", 0.0
+                ),
+                collision_detection_distance=config.get(
+                    "detection_distance", 0.05
+                ),
+                bound_relaxation=config.get("bound_relaxation", 0.0),
+            )
+        )
+
+    def model_collision_geom_pairs(self):
+        """Return self-collision pairs allowed by the compiled MuJoCo model."""
+        model = self.model
+        excluded_bodies = set(model.exclude_signature.tolist())
+        filter_parent = not (
+            model.opt.disableflags & mj.mjtDisableBit.mjDSBL_FILTERPARENT
+        )
+        collidable_geoms = [
+            geom_id
+            for geom_id in range(model.ngeom)
+            if model.geom_contype[geom_id] or model.geom_conaffinity[geom_id]
+        ]
+        geom_pairs = []
+        for index, geom1 in enumerate(collidable_geoms):
+            body1 = int(model.geom_bodyid[geom1])
+            if body1 == 0:
+                continue
+            weld1 = int(model.body_weldid[body1])
+            allowed_geom2 = []
+            for geom2 in collidable_geoms[index + 1 :]:
+                body2 = int(model.geom_bodyid[geom2])
+                if body2 == 0:
+                    continue
+                weld2 = int(model.body_weldid[body2])
+                if weld1 == weld2:
+                    continue
+                if filter_parent and (
+                    int(model.body_parentid[weld1]) == weld2
+                    or int(model.body_parentid[weld2]) == weld1
+                ):
+                    continue
+                if not (
+                    model.geom_contype[geom1] & model.geom_conaffinity[geom2]
+                    or model.geom_contype[geom2] & model.geom_conaffinity[geom1]
+                ):
+                    continue
+                body_signature = (min(body1, body2) << 16) + max(body1, body2)
+                if body_signature in excluded_bodies:
+                    continue
+                allowed_geom2.append(geom2)
+            if allowed_geom2:
+                geom_pairs.append(([geom1], allowed_geom2))
+        return geom_pairs
 
     def setup_retarget_configuration(self):
         self.configuration = mink.Configuration(self.model)
@@ -179,7 +268,12 @@ class GeneralMotionRetargeting:
             curr_error = self.error1()
             dt = self.configuration.model.opt.timestep
             vel1 = mink.solve_ik(
-                self.configuration, self.tasks1, dt, self.solver, self.damping, self.ik_limits
+                self.configuration,
+                self.tasks1,
+                dt,
+                self.solver,
+                self.damping,
+                limits=self.ik_limits,
             )
             self.configuration.integrate_inplace(vel1, dt)
             next_error = self.error1()
@@ -188,7 +282,12 @@ class GeneralMotionRetargeting:
                 curr_error = next_error
                 dt = self.configuration.model.opt.timestep
                 vel1 = mink.solve_ik(
-                    self.configuration, self.tasks1, dt, self.solver, self.damping, self.ik_limits
+                    self.configuration,
+                    self.tasks1,
+                    dt,
+                    self.solver,
+                    self.damping,
+                    limits=self.ik_limits,
                 )
                 self.configuration.integrate_inplace(vel1, dt)
                 next_error = self.error1()
@@ -198,7 +297,12 @@ class GeneralMotionRetargeting:
             curr_error = self.error2()
             dt = self.configuration.model.opt.timestep
             vel2 = mink.solve_ik(
-                self.configuration, self.tasks2, dt, self.solver, self.damping, self.ik_limits
+                self.configuration,
+                self.tasks2,
+                dt,
+                self.solver,
+                self.damping,
+                limits=self.ik_limits,
             )
             self.configuration.integrate_inplace(vel2, dt)
             next_error = self.error2()
@@ -208,7 +312,12 @@ class GeneralMotionRetargeting:
                 # Solve the IK problem with the second task
                 dt = self.configuration.model.opt.timestep
                 vel2 = mink.solve_ik(
-                    self.configuration, self.tasks2, dt, self.solver, self.damping, self.ik_limits
+                    self.configuration,
+                    self.tasks2,
+                    dt,
+                    self.solver,
+                    self.damping,
+                    limits=self.ik_limits,
                 )
                 self.configuration.integrate_inplace(vel2, dt)
                 
@@ -216,7 +325,21 @@ class GeneralMotionRetargeting:
                 num_iter += 1
                 
             
-        return self.configuration.data.qpos.copy()
+        qpos = self.limit_output_velocity(self.configuration.data.qpos.copy())
+        self.configuration.update(qpos)
+        return qpos
+
+    def limit_output_velocity(self, qpos):
+        if self.velocity_limited_qpos_addresses and self.previous_output_qpos is not None:
+            addresses = self.velocity_limited_qpos_addresses
+            max_delta = self.max_joint_velocity / self.source_fps
+            qpos[addresses] = np.clip(
+                qpos[addresses],
+                self.previous_output_qpos[addresses] - max_delta,
+                self.previous_output_qpos[addresses] + max_delta,
+            )
+        self.previous_output_qpos = qpos.copy()
+        return qpos
 
 
     def error1(self):
@@ -271,6 +394,8 @@ class GeneralMotionRetargeting:
         for body_name in human_data.keys():
             pos, quat = human_data[body_name]
             offset_human_data[body_name] = [pos, quat]
+            if body_name not in rot_offsets:
+                continue
             # apply rotation offset first
             updated_quat = (R.from_quat(quat, scalar_first=True) * rot_offsets[body_name]).as_quat(scalar_first=True)
             offset_human_data[body_name][1] = updated_quat
@@ -296,7 +421,6 @@ class GeneralMotionRetargeting:
             pos, quat = human_data[body_name]
             if pos[2] < lowest_pos:
                 lowest_pos = pos[2]
-                lowest_body_name = body_name
         for body_name in human_data.keys():
             pos, quat = human_data[body_name]
             offset_human_data[body_name] = [pos, quat]

@@ -5,6 +5,7 @@ IK_CONFIG_ROOT = HERE / "ik_configs"
 ASSET_ROOT = HERE / ".." / "assets"
 
 ROBOT_XML_DICT = {
+    "bello": ASSET_ROOT / "bello" / "mjcf" / "bello_full_body_viewer.xml",
     "unitree_g1": ASSET_ROOT / "unitree_g1" / "g1_mocap_29dof.xml",
     "unitree_g1_with_hands": ASSET_ROOT / "unitree_g1" / "g1_mocap_29dof_with_hands.xml",
     "unitree_h1": ASSET_ROOT / "unitree_h1" / "h1.xml",
@@ -28,6 +29,7 @@ ROBOT_XML_DICT = {
 IK_CONFIG_DICT = {
     # offline data
     "smplx":{
+        "bello": IK_CONFIG_ROOT / "smplx_to_bello.json",
         "unitree_g1": IK_CONFIG_ROOT / "smplx_to_g1.json",
         "unitree_g1_with_hands": IK_CONFIG_ROOT / "smplx_to_g1.json",
         "unitree_h1": IK_CONFIG_ROOT / "smplx_to_h1.json",
@@ -80,6 +82,7 @@ IK_CONFIG_DICT = {
 
 
 ROBOT_BASE_DICT = {
+    "bello": "bello_root",
     "unitree_g1": "pelvis",
     "unitree_g1_with_hands": "pelvis",
     "unitree_h1": "pelvis",
@@ -101,6 +104,7 @@ ROBOT_BASE_DICT = {
 }
 
 VIEWER_CAM_DISTANCE_DICT = {
+    "bello": 3.0,
     "unitree_g1": 2.0,
     "unitree_g1_with_hands": 2.0,
     "unitree_h1": 3.0,
