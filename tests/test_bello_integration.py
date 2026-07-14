@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import mink
 import mujoco
 import numpy as np
 
@@ -105,6 +106,10 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
             assert entry[2] == 0
 
     assert config["collision_avoidance"]["use_model_contact_matrix"] is True
+    assert config["posture_costs"] == {
+        "left_wrist_pitch_joint": 10.0,
+        "right_wrist_pitch_joint": 10.0,
+    }
 
 
 def test_bello_uses_shared_retargeter() -> None:
@@ -117,6 +122,19 @@ def test_bello_uses_shared_retargeter() -> None:
     )
     assert type(retargeter) is GeneralMotionRetargeting
 
+    posture_tasks = [
+        task for task in retargeter.tasks1 if isinstance(task, mink.PostureTask)
+    ]
+    assert len(posture_tasks) == 1
+    posture_cost = posture_tasks[0].cost
+    expected_cost = np.zeros(retargeter.model.nv)
+    for side in ("left", "right"):
+        dof_address = retargeter.model.joint(
+            f"{side}_wrist_pitch_joint"
+        ).dofadr[0]
+        expected_cost[dof_address] = 10.0
+    np.testing.assert_array_equal(posture_cost, expected_cost)
+
     initial = retargeter.configuration.data.qpos.copy()
     retargeter.previous_output_qpos = initial.copy()
     candidate = initial.copy()
@@ -127,6 +145,19 @@ def test_bello_uses_shared_retargeter() -> None:
         limited[retargeter.velocity_limited_qpos_addresses]
         - initial[retargeter.velocity_limited_qpos_addresses],
         max_delta,
+    )
+
+
+def test_bello_posture_regularizer_does_not_change_unitree_tasks() -> None:
+    retargeter = GeneralMotionRetargeting(
+        src_human="smplx",
+        tgt_robot="unitree_g1",
+        actual_human_height=1.66,
+        verbose=False,
+    )
+    assert not any(
+        isinstance(task, mink.PostureTask)
+        for task in (*retargeter.tasks1, *retargeter.tasks2)
     )
 
 

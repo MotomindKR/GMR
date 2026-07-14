@@ -122,6 +122,7 @@ class GeneralMotionRetargeting:
         self.add_collision_avoidance_limit(ik_config.get("collision_avoidance"))
             
         self.setup_retarget_configuration()
+        self.add_posture_task(ik_config.get("posture_costs"))
         
         self.ground_offset = 0.0
 
@@ -192,6 +193,18 @@ class GeneralMotionRetargeting:
             if allowed_geom2:
                 geom_pairs.append(([geom1], allowed_geom2))
         return geom_pairs
+
+    def add_posture_task(self, posture_costs):
+        if posture_costs is None:
+            return
+        costs = np.zeros(self.model.nv)
+        for joint_name, cost in posture_costs.items():
+            joint = self.model.joint(joint_name)
+            costs[int(joint.dofadr[0])] = cost
+        posture_task = mink.PostureTask(self.model, cost=costs)
+        posture_task.set_target(self.model.qpos0)
+        self.tasks1.append(posture_task)
+        self.tasks2.append(posture_task)
 
     def setup_retarget_configuration(self):
         self.configuration = mink.Configuration(self.model)
