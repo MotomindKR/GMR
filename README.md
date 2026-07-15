@@ -221,6 +221,19 @@ conda install -c conda-forge libstdcxx-ng -y
 
 [[LAFAN1](https://github.com/ubisoft/ubisoft-laforge-animation-dataset) motion data] download raw LAFAN1 bvh files from [the official repo](https://github.com/ubisoft/ubisoft-laforge-animation-dataset), i.e., [lafan1.zip](https://github.com/ubisoft/ubisoft-laforge-animation-dataset/blob/master/lafan1/lafan1.zip).
 
+To extract the complete archive, convert each sequence to the same minimal-twist
+SMPL-X convention used by the Bello validation motions, and retarget all frames
+to fixed-waist Bello:
+
+```bash
+nix develop -c python scripts/prepare_lafan1_bello_dataset.py --jobs 8
+```
+
+The resumable pipeline writes SMPL-X intermediates under
+`motion_data/lafan1_smplx`, Bello GMR pickles under
+`motion_data/lafan1_bello`, and a hash/duration manifest alongside the Bello
+motions. These generated, license-controlled dataset files are ignored by Git.
+
 
 ## Human/Robot Motion Data Formulation
 
