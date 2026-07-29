@@ -53,7 +53,10 @@ def load_motion(
             qpos = np.asarray(archive["qpos"], dtype=np.float64)
             fps = float(np.asarray(archive["fps"]).reshape(()))
             joint_names = tuple(str(name) for name in archive["joint_names"].tolist())
-        return _reorder_qpos(qpos, joint_names, expected_joint_names), fps
+        return _validated_motion(
+            _reorder_qpos(qpos, joint_names, expected_joint_names),
+            fps,
+        )
     with path.open("rb") as source:
         document = pickle.load(source)  # noqa: S301 - explicit trusted local input
     if not isinstance(document, dict):
@@ -72,7 +75,7 @@ def load_motion(
     qpos = np.concatenate(
         (root_position, root_xyzw[:, (3, 0, 1, 2)], joint_position), axis=1
     )
-    return (
+    return _validated_motion(
         _reorder_qpos(qpos, joint_names, expected_joint_names),
         float(document["fps"]),
     )
@@ -83,7 +86,7 @@ def _reorder_qpos(
     joint_names: tuple[str, ...],
     expected_joint_names: tuple[str, ...],
 ) -> np.ndarray:
-    if qpos.ndim != 2 or qpos.shape[1] != 7 + len(joint_names):
+    if qpos.ndim != 2 or qpos.shape[0] == 0 or qpos.shape[1] != 7 + len(joint_names):
         raise ValueError("motion qpos shape does not match its joint schema")
     columns = {name: index for index, name in enumerate(joint_names)}
     missing = sorted(set(expected_joint_names) - set(columns))
@@ -104,6 +107,12 @@ def _reorder_qpos(
         raise ValueError("motion contains invalid root quaternions or values")
     reordered[:, 3:7] /= norms
     return reordered
+
+
+def _validated_motion(qpos: np.ndarray, fps: float) -> tuple[np.ndarray, float]:
+    if not np.isfinite(fps) or fps <= 0.0:
+        raise ValueError("motion fps must be positive and finite")
+    return qpos, fps
 
 
 def main() -> None:
