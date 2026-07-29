@@ -118,11 +118,9 @@
               <geom name="torso_link_collision" pos="0.0013604202 -0.027035789 0.28224463" quat="1 0 0 0" type="box" rgba="0.7 0.7 0.7 1" size="0.12363958 0.12205076 0.14475537" />
               <body name="neck_link" pos="0 0.01 0.424">
                 <inertial pos="0.0249657 -7.71704e-05 0.0416366" quat="0.644325 0.291282 0.291282 0.644325" mass="0.122951" diaginertia="0.000128 0.000123319 4.46808e-05" />
-                <joint name="neck_yaw_joint" pos="0 0 0" axis="0 0 1" range="-1 1" actuatorfrcrange="-5.5 5.5" />
                 <geom name="neck_link_collision" pos="0.042436116 -8.090353e-05 0.054988342" quat="1 0 0 0" type="box" rgba="0.7 0.7 0.7 1" size="0.0234136 0.021869096 0.022959656" />
                 <body name="head_link" pos="0.063 0 0.054997">
                   <inertial pos="-0.0637102 -0.00294053 0.04099" quat="0.493405 0.506537 -0.448068 0.546998" mass="1.46423" diaginertia="0.00808796 0.00692428 0.00618477" />
-                  <joint name="head_pitch_joint" pos="0 0 0" axis="1 0 0" range="-0.8 0.3" actuatorfrcrange="-5.5 5.5" />
                   <geom name="head_link_collision" pos="-0.063678585 -0.015789494 0.035003168" type="box" rgba="0.7 0.7 0.7 1" size="0.073278584 0.088306881 0.074999832" />
                   <body name="head_camera_frame_link" pos="-0.033 0.063443 0.026953">
                     <inertial pos="-0.03 -0.073443 -0.55795" mass="0.001" diaginertia="1e-09 1e-09 1e-09" />
@@ -303,8 +301,6 @@
     <position name="right_ankle_roll_joint_pos" joint="right_ankle_roll_joint" kp="22" kv="1" ctrlrange="-0.07857 0.07857" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />
     <position name="left_hip_yaw_joint_pos" joint="left_hip_yaw_joint" kp="150" kv="5" ctrlrange="-1.41372 1.41372" ctrllimited="false" user="0.125" forcerange="-60 60" forcelimited="true" />
     <position name="waist_yaw_joint_pos" joint="waist_yaw_joint" kp="180" kv="12" ctrlrange="-0.45 0.45" ctrllimited="false" user="0" forcerange="-120 120" forcelimited="true" />
-    <position name="neck_yaw_joint_pos" joint="neck_yaw_joint" kp="5.5" kv="0.5" ctrlrange="-1 1" ctrllimited="false" user="0" forcerange="-5.5 5.5" forcelimited="true" />
-    <position name="head_pitch_joint_pos" joint="head_pitch_joint" kp="5.5" kv="0.5" ctrlrange="-0.8 0.3" ctrllimited="false" user="0" forcerange="-5.5 5.5" forcelimited="true" />
     <position name="right_shoulder_pitch_joint_pos" joint="right_shoulder_pitch_joint" kp="70" kv="2" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-120 120" forcelimited="true" />
     <position name="right_shoulder_roll_joint_pos" joint="right_shoulder_roll_joint" kp="70" kv="2" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-60 60" forcelimited="true" />
     <position name="right_shoulder_yaw_joint_pos" joint="right_shoulder_yaw_joint" kp="20" kv="1" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />
@@ -319,6 +315,6 @@
     <position name="left_wrist_pitch_joint_pos" joint="left_wrist_pitch_joint" kp="10" kv="1" ctrlrange="-1.5 1.5" ctrllimited="false" user="0" forcerange="-14 14" forcelimited="true" />
   </actuator>
   <keyframe>
-    <key name="home" qpos="0 0 0.91 1 0 0 0 -0.325 0 0.125 0.45 0.038201 0 0.325 0 -0.125 0.45 0.038201 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" ctrl="-0.325 0 0.45 0.038201 0 0.325 0 -0.125 0.45 0.038201 0 0.125 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" />
+    <key name="home" qpos="0 0 0.91 1 0 0 0 -0.325 0 0.125 0.45 0.038201 0 0.325 0 -0.125 0.45 0.038201 0 0 0 0 0 0 0 0 0 0 0 0 0 0" ctrl="-0.325 0 0.45 0.038201 0 0.325 0 -0.125 0.45 0.038201 0 0.125 0 0 0 0 0 0 0 0 0 0 0 0 0" />
   </keyframe>
 </mujoco>

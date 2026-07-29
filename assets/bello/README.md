@@ -17,7 +17,12 @@ AssetPrepConfig(
         ("left_ankle_pitch_joint", 0.261799),
         ("right_ankle_pitch_joint", 0.261799),
     ),
-    fixed_joint_names=("waist_roll_joint", "waist_pitch_joint"),
+    fixed_joint_names=(
+        "waist_roll_joint",
+        "waist_pitch_joint",
+        "neck_yaw_joint",
+        "head_pitch_joint",
+    ),
     visual_mesh_face_budget=5000,
 )
 ```
@@ -25,7 +30,8 @@ AssetPrepConfig(
 `bello_full_body_boxes.xml` is the collision model. The viewer model adds
 non-colliding visual meshes. Both models retain the source URDF's five foot
 collision primitives per side. Bello's anatomical forward direction is local
-`+Y`.
+`+Y`. The exported reference schema contains 25 actuated joints; the neck and
+head remain as fixed bodies so their mass and collision geometry are preserved.
 
 The compiled contact matrix excludes all body pairs at kinematic graph distance
 one or two. GMR derives its IK collision pairs from those compiled exclusions

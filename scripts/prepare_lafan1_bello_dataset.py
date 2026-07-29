@@ -182,7 +182,9 @@ def main() -> None:
         "--smplx-dir", type=Path, default=Path("motion_data/lafan1_smplx")
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("motion_data/lafan1_bello")
+        "--output-dir",
+        type=Path,
+        default=Path("motion_data/lafan1_bello_fixed_head"),
     )
     parser.add_argument(
         "--body-model-dir", type=Path, default=Path("assets/body_models")
@@ -234,7 +236,7 @@ def main() -> None:
         "source_license": SOURCE_LICENSE,
         "archive_sha256": sha256(args.archive),
         "robot": "bello",
-        "robot_configuration": "fixed_waist_roll_pitch",
+        "robot_configuration": "fixed_waist_roll_pitch_and_head",
         "motions": sorted(motions, key=lambda item: item["source_file"]),
         "failures": sorted(failures, key=lambda item: item["source_file"]),
     }

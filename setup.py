@@ -8,7 +8,7 @@ setup(
   description="General Motion Retargeting (GMR) for Humanoid Robots",
   long_description=open("README.md").read(),
   long_description_content_type="text/markdown",
-  url="https://github.com/YanjieZe/GMR",
+  url="https://github.com/MotomindKR/GMR",
   license="MIT",
   version="0.2.0",
   install_requires=[
@@ -27,6 +27,7 @@ setup(
     "protobuf",
     "redis[hiredis]",
     "imageio[ffmpeg]",
+    "grpcio>=1.81,<2",
   ],
   python_requires='>=3.10',
 )

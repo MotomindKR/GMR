@@ -23,8 +23,6 @@ EXPECTED_JOINTS = (
     "right_ankle_pitch_joint",
     "right_ankle_roll_joint",
     "waist_yaw_joint",
-    "neck_yaw_joint",
-    "head_pitch_joint",
     "right_shoulder_pitch_joint",
     "right_shoulder_roll_joint",
     "right_shoulder_yaw_joint",
@@ -49,8 +47,8 @@ def load_models():
 
 def test_source_generated_model_contract() -> None:
     viewer, boxes = load_models()
-    assert (viewer.nq, viewer.nv, viewer.nu) == (34, 33, 27)
-    assert (boxes.nq, boxes.nv, boxes.nu) == (34, 33, 27)
+    assert (viewer.nq, viewer.nv, viewer.nu) == (32, 31, 25)
+    assert (boxes.nq, boxes.nv, boxes.nu) == (32, 31, 25)
 
     model_joints = tuple(
         viewer.joint(joint_id).name for joint_id in range(1, viewer.njnt)
@@ -58,6 +56,8 @@ def test_source_generated_model_contract() -> None:
     assert model_joints == EXPECTED_JOINTS
     assert "waist_roll_joint" not in model_joints
     assert "waist_pitch_joint" not in model_joints
+    assert "neck_yaw_joint" not in model_joints
+    assert "head_pitch_joint" not in model_joints
     assert viewer.body("waist_roll_link").id >= 0
     assert viewer.body("torso_link").id >= 0
 
@@ -192,7 +192,7 @@ def test_collision_matrix_matches_depth_two_body_neighborhood() -> None:
     ik_pairs = {
         frozenset(pair) for pair in collision_limit.geom_id_pairs
     }
-    assert len(ik_pairs) == len(collision_limit.geom_id_pairs) == 675
+    assert len(ik_pairs) == len(collision_limit.geom_id_pairs) == 669
     for pair in ik_pairs:
         geom1, geom2 = pair
         body1 = int(model.geom_bodyid[geom1])
