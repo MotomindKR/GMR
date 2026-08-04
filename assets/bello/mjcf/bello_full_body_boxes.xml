@@ -135,27 +135,27 @@
               </body>
               <body name="r_shoulder_pitch_link" pos="0.1095 0 0.295">
                 <inertial pos="0.0707162 -0.00137684 0.000471923" quat="0.481274 0.491141 0.52555 0.500952" mass="1.14283" diaginertia="0.0033585 0.00289877 0.00218973" />
-                <joint name="right_shoulder_pitch_joint" pos="0 0 0" axis="1 0 0" range="-1.5 0.5" actuatorfrcrange="-120 120" />
+                <joint name="right_shoulder_pitch_joint" pos="0 0 0" axis="1 0 0" range="-1.57 1.57" actuatorfrcrange="-120 120" />
                 <geom name="r_shoulder_pitch_link_collision" pos="0.073291489 -0.0012742825 6.5429688e-05" quat="1 0 0 0" type="box" rgba="0.7 0.7 0.7 1" size="0.073791489 0.055710917 0.06893457" />
                 <body name="r_shoulder_roll_link" pos="0.091 -0.0275 0">
                   <inertial pos="0.00918792 0.0251193 -0.0434859" quat="0.988479 0.0905927 -0.120823 0.010178" mass="1.04533" diaginertia="0.0043743 0.00332653 0.00276416" />
-                  <joint name="right_shoulder_roll_joint" pos="0 0 0" axis="0 -1 0" range="-0.2 2" actuatorfrcrange="-60 60" />
+                  <joint name="right_shoulder_roll_joint" pos="0 0 0" axis="0 -1 0" range="-1.57 1.57" actuatorfrcrange="-60 60" />
                   <geom name="r_shoulder_roll_link_collision" pos="0.0053169785 0.027499998 -0.033638405" type="box" rgba="0.7 0.7 0.7 1" size="0.062563362 0.061500013 0.09086158" />
                   <body name="r_upper_arm_link" pos="0.018002 0.0275 -0.124499">
                     <inertial pos="-0.00415712 0.00389549 -0.085217" quat="0.692233 0.0433119 0.0204833 0.720082" mass="0.943331" diaginertia="0.00504652 0.00497032 0.00139516" />
-                    <joint name="right_shoulder_yaw_joint" pos="0 0 0" axis="-4.4e-05 0 1" range="-1.5 2" actuatorfrcrange="-36 36" />
+                    <joint name="right_shoulder_yaw_joint" pos="0 0 0" axis="-4.4e-05 0 1" range="-1.57 1.57" actuatorfrcrange="-36 36" />
                     <geom name="r_upper_arm_link_collision" pos="-0.0062463085 2.6702881e-08 -0.087493729" quat="1 0 0 0" type="box" rgba="0.7 0.7 0.7 1" size="0.055246567 0.048867447 0.12099599" />
                     <body name="r_elbow_link" pos="-0.014993 -0.02575 -0.162001">
                       <inertial pos="0.0124683 0.0228153 -0.0360198" quat="0.986597 0.0583268 -0.15228 0.00591097" mass="0.547475" diaginertia="0.00182993 0.00142587 0.000922204" />
-                      <joint name="right_elbow_pitch_joint" pos="0 0 0" axis="0 1 0" range="-1.5 2.4" actuatorfrcrange="-36 36" />
+                      <joint name="right_elbow_pitch_joint" pos="0 0 0" axis="0 1 0" range="-1.57 1.57" actuatorfrcrange="-36 36" />
                       <geom name="r_elbow_link_collision" pos="0.0072497585 0.025750088 -0.038834774" type="box" rgba="0.7 0.7 0.7 1" size="0.053729736 0.049250015 0.07916325" />
                       <body name="r_lower_arm_link" pos="0.025005 0.02575 -0.117998">
                         <inertial pos="0.000104808 1.00478e-05 -0.040884" quat="0.999715 -0.0172086 0.016252 0.00309748" mass="0.442008" diaginertia="0.000921587 0.000829549 0.000365864" />
-                        <joint name="right_elbow_yaw_joint" pos="0 0 0" axis="-4.4e-05 0 1" range="-2.0943951 0.523598776" actuatorfrcrange="-14 14" />
+                        <joint name="right_elbow_yaw_joint" pos="0 0 0" axis="-4.4e-05 0 1" range="-0.523599 2.0944" actuatorfrcrange="-14 14" />
                         <geom name="r_lower_arm_link_collision" pos="4.0504395e-05 0.0014679947 -0.038003589" quat="1 0 0 0" type="box" rgba="0.7 0.7 0.7 1" size="0.035963593 0.035597202 0.076003172" />
                         <body name="r_wrist_link" pos="4e-06 0.0275 -0.086">
                           <inertial pos="-0.000132394 -0.0260914 -0.0440604" quat="0.998286 -0.058456 0.00261376 0.000474491" mass="0.38492" diaginertia="0.000763011 0.000576703 0.000378287" />
-                          <joint name="right_wrist_pitch_joint" pos="0 0 0" axis="0 -1 0" range="-1.5 1.5" actuatorfrcrange="-14 14" />
+                          <joint name="right_wrist_pitch_joint" pos="0 0 0" axis="0 -1 0" range="-1.57 1.57" actuatorfrcrange="-14 14" />
                           <geom name="r_wrist_link_collision" pos="0.00056383289 -0.026768002 -0.041212674" quat="1 0 0 0" type="box" rgba="0.7 0.7 0.7 1" size="0.030320023 0.042474491 0.060788517" />
                           <body name="r_end_effector_sphere_link" pos="5e-06 -0.0275 -0.122">
                             <inertial pos="0 0 0" mass="0.05" diaginertia="2.1125e-05 2.1125e-05 2.1125e-05" />
@@ -301,12 +301,12 @@
     <position name="right_ankle_roll_joint_pos" joint="right_ankle_roll_joint" kp="22" kv="1" ctrlrange="-0.07857 0.07857" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />
     <position name="left_hip_yaw_joint_pos" joint="left_hip_yaw_joint" kp="150" kv="5" ctrlrange="-1.41372 1.41372" ctrllimited="false" user="0.125" forcerange="-60 60" forcelimited="true" />
     <position name="waist_yaw_joint_pos" joint="waist_yaw_joint" kp="180" kv="12" ctrlrange="-0.45 0.45" ctrllimited="false" user="0" forcerange="-120 120" forcelimited="true" />
-    <position name="right_shoulder_pitch_joint_pos" joint="right_shoulder_pitch_joint" kp="70" kv="2" ctrlrange="-1.5 0.5" ctrllimited="false" user="0" forcerange="-120 120" forcelimited="true" />
-    <position name="right_shoulder_roll_joint_pos" joint="right_shoulder_roll_joint" kp="70" kv="2" ctrlrange="-0.2 2" ctrllimited="false" user="0" forcerange="-60 60" forcelimited="true" />
-    <position name="right_shoulder_yaw_joint_pos" joint="right_shoulder_yaw_joint" kp="20" kv="1" ctrlrange="-1.5 2" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />
-    <position name="right_elbow_pitch_joint_pos" joint="right_elbow_pitch_joint" kp="40" kv="2" ctrlrange="-1.5 2.4" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />
-    <position name="right_elbow_yaw_joint_pos" joint="right_elbow_yaw_joint" kp="20" kv="1" ctrlrange="-2.0943951 0.523598776" ctrllimited="false" user="0" forcerange="-14 14" forcelimited="true" />
-    <position name="right_wrist_pitch_joint_pos" joint="right_wrist_pitch_joint" kp="10" kv="1" ctrlrange="-1.5 1.5" ctrllimited="false" user="0" forcerange="-14 14" forcelimited="true" />
+    <position name="right_shoulder_pitch_joint_pos" joint="right_shoulder_pitch_joint" kp="70" kv="2" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-120 120" forcelimited="true" />
+    <position name="right_shoulder_roll_joint_pos" joint="right_shoulder_roll_joint" kp="70" kv="2" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-60 60" forcelimited="true" />
+    <position name="right_shoulder_yaw_joint_pos" joint="right_shoulder_yaw_joint" kp="20" kv="1" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />
+    <position name="right_elbow_pitch_joint_pos" joint="right_elbow_pitch_joint" kp="40" kv="2" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />
+    <position name="right_elbow_yaw_joint_pos" joint="right_elbow_yaw_joint" kp="20" kv="1" ctrlrange="-0.523599 2.0944" ctrllimited="false" user="0" forcerange="-14 14" forcelimited="true" />
+    <position name="right_wrist_pitch_joint_pos" joint="right_wrist_pitch_joint" kp="10" kv="1" ctrlrange="-1.57 1.57" ctrllimited="false" user="0" forcerange="-14 14" forcelimited="true" />
     <position name="left_shoulder_pitch_joint_pos" joint="left_shoulder_pitch_joint" kp="70" kv="2" ctrlrange="-1.5 0.5" ctrllimited="false" user="0" forcerange="-120 120" forcelimited="true" />
     <position name="left_shoulder_roll_joint_pos" joint="left_shoulder_roll_joint" kp="70" kv="2" ctrlrange="-0.2 2" ctrllimited="false" user="0" forcerange="-60 60" forcelimited="true" />
     <position name="left_shoulder_yaw_joint_pos" joint="left_shoulder_yaw_joint" kp="20" kv="1" ctrlrange="-1.5 2" ctrllimited="false" user="0" forcerange="-36 36" forcelimited="true" />

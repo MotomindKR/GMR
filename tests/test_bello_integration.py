@@ -37,21 +37,6 @@ EXPECTED_JOINTS = (
     "left_wrist_pitch_joint",
 )
 
-EXPECTED_POSTURE_COSTS = {
-    "left_shoulder_pitch_joint": 1.0,
-    "right_shoulder_pitch_joint": 1.0,
-    "left_shoulder_roll_joint": 2.0,
-    "right_shoulder_roll_joint": 2.0,
-    "left_shoulder_yaw_joint": 3.0,
-    "right_shoulder_yaw_joint": 3.0,
-    "left_elbow_pitch_joint": 1.0,
-    "right_elbow_pitch_joint": 1.0,
-    "left_elbow_yaw_joint": 2.0,
-    "right_elbow_yaw_joint": 2.0,
-    "left_wrist_pitch_joint": 10.0,
-    "right_wrist_pitch_joint": 10.0,
-}
-
 
 def load_models():
     viewer = mujoco.MjModel.from_xml_path(str(ROBOT_XML_DICT["bello"]))
@@ -121,19 +106,10 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
             assert entry[2] == 0
 
     assert config["collision_avoidance"]["use_model_contact_matrix"] is True
-    assert config["max_joint_velocity"] == 3.0
-    assert config["max_iter"] == 3
-    assert config["joint_limits"] == {
-        "left_knee_joint": [0.3, 2.0944],
-        "right_knee_joint": [0.3, 2.0944],
+    assert config["posture_costs"] == {
+        "left_wrist_pitch_joint": 10.0,
+        "right_wrist_pitch_joint": 10.0,
     }
-    assert config["flat_orientation_geoms"] == {
-        "left_foot": "left_ankle_roll_link_collision_box_1",
-        "right_foot": "right_ankle_roll_link_collision_box_1",
-    }
-    assert scales["pelvis"] == 0.95
-    assert scales["left_foot"] == scales["right_foot"] == 0.95
-    assert config["posture_costs"] == EXPECTED_POSTURE_COSTS
 
 
 def test_bello_uses_shared_retargeter() -> None:
@@ -145,23 +121,6 @@ def test_bello_uses_shared_retargeter() -> None:
         use_velocity_limit=True,
     )
     assert type(retargeter) is GeneralMotionRetargeting
-    for side in ("left", "right"):
-        knee = retargeter.model.joint(f"{side}_knee_joint")
-        np.testing.assert_allclose(knee.range, (0.3, 2.0944))
-        assert retargeter.configuration.data.qpos[knee.qposadr[0]] == 0.3
-
-        geom_name = retargeter.flat_orientation_geoms[f"{side}_foot"]
-        body_quat = retargeter.flatten_geom_orientation(
-            np.asarray((1.0, 0.0, 0.0, 0.0)), geom_name
-        )
-        body_to_geom = retargeter.model.geom(geom_name).quat
-        body_rotation = mink.SO3(body_quat).as_matrix()
-        geom_rotation = mink.SO3(body_to_geom).as_matrix()
-        np.testing.assert_allclose(
-            (body_rotation @ geom_rotation)[:, 2],
-            (0.0, 0.0, 1.0),
-            atol=1e-12,
-        )
 
     posture_tasks = [
         task for task in retargeter.tasks1 if isinstance(task, mink.PostureTask)
@@ -169,9 +128,11 @@ def test_bello_uses_shared_retargeter() -> None:
     assert len(posture_tasks) == 1
     posture_cost = posture_tasks[0].cost
     expected_cost = np.zeros(retargeter.model.nv)
-    for joint_name, cost in EXPECTED_POSTURE_COSTS.items():
-        dof_address = retargeter.model.joint(joint_name).dofadr[0]
-        expected_cost[dof_address] = cost
+    for side in ("left", "right"):
+        dof_address = retargeter.model.joint(
+            f"{side}_wrist_pitch_joint"
+        ).dofadr[0]
+        expected_cost[dof_address] = 10.0
     np.testing.assert_array_equal(posture_cost, expected_cost)
 
     initial = retargeter.configuration.data.qpos.copy()

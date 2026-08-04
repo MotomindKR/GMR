@@ -171,7 +171,7 @@ This repo is licensed under the [MIT License](LICENSE).
 | 15 | Tienkung `tienkung`  | Leg (2\*6) + Arm (2\*4) = 20 | ✅ | TBD | TBD | TBD |
 | 16 | PAL Robotics' Talos `pal_talos`  | Head (2) + Arm (2\*7) + Waist (2) + Leg (2\*6) = 30 | ✅ | TBD | TBD | TBD |
 | 17 | Fourier GR3 `fourier_gr3`  | Head (2) + Arm (2\*7) + Waist (3) + Leg (2\*6) = 31 | ✅ | TBD | TBD | TBD |
-| 20 | Bello `bello` | Arm (2\*6) + Waist yaw (1) + Leg (2\*6) = 25; head fixed | ✅ | TBD | TBD | TBD | TBD |
+| 20 | Bello `bello` | Arm (2\*6) + Waist yaw (1) + Leg (2\*6) = 25 | ✅ | TBD | TBD | TBD | TBD |
 | More robots coming soon ! |
 | 18 | AgiBot A2 `agibot_a2` | TBD | TBD | TBD | TBD | TBD |
 | 19 | OpenLoong `openloong` | TBD | TBD | TBD | TBD | TBD |
@@ -226,29 +226,13 @@ SMPL-X convention used by the Bello validation motions, and retarget all frames
 to fixed-head, fixed-waist Bello:
 
 ```bash
-nix develop -c python scripts/prepare_lafan1_bello_dataset.py --jobs 2
+nix develop -c python scripts/prepare_lafan1_bello_dataset.py --jobs 8
 ```
 
 The resumable pipeline writes SMPL-X intermediates under
 `motion_data/lafan1_smplx`, Bello GMR pickles under
-`motion_data/lafan1_bello_fixed_head`, and a hash/duration manifest alongside
-the Bello motions. These generated, license-controlled dataset files are
-ignored by Git.
-
-The [ASAP](https://github.com/LeCAR-Lab/ASAP) TairanTestbed motions use
-AMASS-style SMPL parameters. With a sparse ASAP checkout at
-`motion_data/sources/asap`, convert its first 22 SMPL body joints to GMR's
-shared SMPL-X body convention and retarget all 51 clips with:
-
-```bash
-nix develop -c python scripts/prepare_asap_bello_dataset.py --jobs 2
-```
-
-This resumable pipeline writes normalized SMPL-X intermediates under
-`motion_data/asap_smplx`, fixed-head 25-joint Bello pickles under
-`motion_data/asap_bello_fixed_head`, and records the ASAP source commit and
-per-file hashes in the output manifest. Add `--overwrite` to regenerate
-existing outputs.
+`motion_data/lafan1_bello`, and a hash/duration manifest alongside the Bello
+motions. These generated, license-controlled dataset files are ignored by Git.
 
 
 ## Human/Robot Motion Data Formulation
