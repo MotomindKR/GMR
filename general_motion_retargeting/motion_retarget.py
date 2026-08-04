@@ -83,6 +83,7 @@ class GeneralMotionRetargeting:
         self.use_ik_match_table1 = ik_config["use_ik_match_table1"]
         self.use_ik_match_table2 = ik_config["use_ik_match_table2"]
         self.human_scale_table = ik_config["human_scale_table"]
+        self.flat_orientation_geoms = ik_config.get("flat_orientation_geoms", {})
         self.ground = ik_config["ground_height"] * np.array([0, 0, 1])
         if use_velocity_limit is None:
             use_velocity_limit = ik_config.get("use_velocity_limit", False)
@@ -108,6 +109,20 @@ class GeneralMotionRetargeting:
         self.task_errors1 = {}
         self.task_errors2 = {}
 
+        retarget_joint_limits = ik_config.get("joint_limits", {})
+        for joint_name, bounds in retarget_joint_limits.items():
+            joint = self.model.joint(joint_name)
+            if not joint.limited:
+                raise ValueError(
+                    f"retarget joint limit requires a limited joint: {joint_name}"
+                )
+            lower, upper = bounds
+            if lower > upper:
+                raise ValueError(
+                    f"invalid retarget joint limit for {joint_name}: {bounds}"
+                )
+            self.model.jnt_range[joint.id] = (lower, upper)
+
         self.ik_limits = [mink.ConfigurationLimit(self.model)]
         if use_velocity_limit:
             actuator_joint_names = {
@@ -126,6 +141,14 @@ class GeneralMotionRetargeting:
         self.add_collision_avoidance_limit(ik_config.get("collision_avoidance"))
             
         self.setup_retarget_configuration()
+        if retarget_joint_limits:
+            initial_qpos = self.configuration.data.qpos.copy()
+            for joint_name, bounds in retarget_joint_limits.items():
+                qpos_address = int(self.model.joint(joint_name).qposadr[0])
+                initial_qpos[qpos_address] = np.clip(
+                    initial_qpos[qpos_address], *bounds
+                )
+            self.configuration.update(initial_qpos)
         self.add_posture_task(ik_config.get("posture_costs"))
         
         self.ground_offset = 0.0
@@ -267,13 +290,30 @@ class GeneralMotionRetargeting:
             for body_name in self.human_body_to_task1.keys():
                 task = self.human_body_to_task1[body_name]
                 pos, rot = human_data[body_name]
+                if body_name in self.flat_orientation_geoms:
+                    rot = self.flatten_geom_orientation(
+                        rot, self.flat_orientation_geoms[body_name]
+                    )
                 task.set_target(mink.SE3.from_rotation_and_translation(mink.SO3(rot), pos))
         
         if self.use_ik_match_table2:
             for body_name in self.human_body_to_task2.keys():
                 task = self.human_body_to_task2[body_name]
                 pos, rot = human_data[body_name]
+                if body_name in self.flat_orientation_geoms:
+                    rot = self.flatten_geom_orientation(
+                        rot, self.flat_orientation_geoms[body_name]
+                    )
                 task.set_target(mink.SE3.from_rotation_and_translation(mink.SO3(rot), pos))
+
+    def flatten_geom_orientation(self, body_quat, geom_name):
+        geom = self.model.geom(geom_name)
+        body_to_geom = R.from_quat(geom.quat, scalar_first=True)
+        target_geom = R.from_quat(body_quat, scalar_first=True) * body_to_geom
+        geom_x_axis = target_geom.as_matrix()[:, 0]
+        heading = np.arctan2(geom_x_axis[1], geom_x_axis[0])
+        flat_geom = R.from_euler("z", heading)
+        return (flat_geom * body_to_geom.inv()).as_quat(scalar_first=True)
             
             
     def retarget(self, human_data, offset_to_ground=False):

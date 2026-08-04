@@ -1,7 +1,7 @@
 # Bello asset provenance
 
 These MJCF files were generated from the Bello full-body source URDF at
-`bello_mujoco_wholebody` commit `56ed6795ea066f8e37c4a28b3a4810a259e0f28d`.
+`bello_mujoco_wholebody` commit `b8bf9216893b630631996c9f608150d7db2b4471`.
 The source URDF SHA-256 was
 `379cd481d77ed1d5c92cd1d33cb2ba0d33c60b9cc70b9d93490453b2d8ecdaa5`.
 
@@ -32,6 +32,9 @@ non-colliding visual meshes. Both models retain the source URDF's five foot
 collision primitives per side. Bello's anatomical forward direction is local
 `+Y`. The exported reference schema contains 25 actuated joints; the neck and
 head remain as fixed bodies so their mass and collision geometry are preserved.
+
+The generated model has 25 actuated joints. Waist roll/pitch and neck
+yaw/head pitch are fixed; waist yaw remains actuated.
 
 The compiled contact matrix excludes all body pairs at kinematic graph distance
 one or two. GMR derives its IK collision pairs from those compiled exclusions
