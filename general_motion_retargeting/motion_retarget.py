@@ -8,6 +8,13 @@ from scipy.spatial.transform import Rotation as R
 from .params import ROBOT_XML_DICT, IK_CONFIG_DICT
 from rich import print
 
+BELLO_ANKLE_TENDON_LOGICAL_JOINT = {
+    "left_ankle_motor_1": "left_ankle_pitch_joint",
+    "left_ankle_motor_2": "left_ankle_roll_joint",
+    "right_ankle_motor_1": "right_ankle_pitch_joint",
+    "right_ankle_motor_2": "right_ankle_roll_joint",
+}
+
 class GeneralMotionRetargeting:
     """General Motion Retargeting (GMR).
     """
@@ -19,12 +26,12 @@ class GeneralMotionRetargeting:
         solver: str="daqp", # change from "quadprog" to "daqp".
         damping: float=5e-1, # change from 1e-1 to 1e-2.
         verbose: bool=True,
-        use_velocity_limit: bool | None=None,
-        source_fps: float=30.0,
+        use_velocity_limit: bool=False,
         robot_xml_path: str | Path | None = None,
     ) -> None:
 
         # load the robot model
+        self.tgt_robot = tgt_robot
         self.xml_file = str(
             ROBOT_XML_DICT[tgt_robot] if robot_xml_path is None else robot_xml_path
         )
@@ -83,17 +90,40 @@ class GeneralMotionRetargeting:
         self.use_ik_match_table1 = ik_config["use_ik_match_table1"]
         self.use_ik_match_table2 = ik_config["use_ik_match_table2"]
         self.human_scale_table = ik_config["human_scale_table"]
+        self.ground_alignment_axes = {
+            body_name: np.asarray(axis, dtype=float)
+            for body_name, axis in ik_config.get("ground_alignment_axes", {}).items()
+        }
+        for body_name, axis in self.ground_alignment_axes.items():
+            if body_name not in self.human_scale_table:
+                raise ValueError(
+                    f"ground-aligned body {body_name!r} is not in human_scale_table"
+                )
+            norm = np.linalg.norm(axis)
+            if axis.shape != (3,) or not np.isfinite(norm) or norm < 1e-8:
+                raise ValueError(
+                    f"ground-alignment axis for {body_name!r} must be a finite 3-vector"
+                )
+            self.ground_alignment_axes[body_name] = axis / norm
         self.ground = ik_config["ground_height"] * np.array([0, 0, 1])
-        if use_velocity_limit is None:
-            use_velocity_limit = ik_config.get("use_velocity_limit", False)
-        if source_fps <= 0.0:
-            raise ValueError("source_fps must be positive")
-        self.source_fps = source_fps
-        self.max_joint_velocity = ik_config.get("max_joint_velocity", 3 * np.pi)
-        self.velocity_limited_qpos_addresses = []
-        self.previous_output_qpos = None
-
-        self.max_iter = ik_config.get("max_iter", 10)
+        self.ground_clearance_geom_ids = []
+        for geom_name in ik_config.get("ground_clearance_geoms", []):
+            geom_id = self.model.geom(geom_name).id
+            if self.model.geom_type[geom_id] != mj.mjtGeom.mjGEOM_BOX:
+                raise ValueError(
+                    f"ground-clearance geom {geom_name!r} must be a box"
+                )
+            self.ground_clearance_geom_ids.append(geom_id)
+        root_body_id = self.model.body(self.robot_root_name).id
+        root_joint_id = int(self.model.body_jntadr[root_body_id])
+        if self.ground_clearance_geom_ids:
+            if (
+                root_joint_id < 0
+                or self.model.jnt_type[root_joint_id] != mj.mjtJoint.mjJNT_FREE
+            ):
+                raise ValueError("ground clearance requires a free robot root")
+            self.root_height_qpos_address = int(self.model.jnt_qposadr[root_joint_id]) + 2
+        self.max_iter = 10
 
         self.solver = solver
         self.damping = damping
@@ -110,105 +140,38 @@ class GeneralMotionRetargeting:
 
         self.ik_limits = [mink.ConfigurationLimit(self.model)]
         if use_velocity_limit:
-            actuator_joint_names = {
-                self.model.joint(self.model.actuator_trnid[actuator_id, 0]).name
-                for actuator_id in range(self.model.nu)
-            }
-            VELOCITY_LIMITS = {
-                joint_name: self.max_joint_velocity
-                for joint_name in actuator_joint_names
-            }
-            self.velocity_limited_qpos_addresses = [
-                int(self.model.joint(joint_name).qposadr[0])
-                for joint_name in actuator_joint_names
-            ]
+            actuator_joint_names = self.velocity_limited_joint_names()
+            VELOCITY_LIMITS = {k: 3*np.pi for k in actuator_joint_names}
             self.ik_limits.append(mink.VelocityLimit(self.model, VELOCITY_LIMITS)) 
-        self.add_collision_avoidance_limit(ik_config.get("collision_avoidance"))
             
         self.setup_retarget_configuration()
-        self.add_posture_task(ik_config.get("posture_costs"))
         
         self.ground_offset = 0.0
 
-    def add_collision_avoidance_limit(self, config):
-        if config is None:
-            return
-
-        if not config.get("use_model_contact_matrix", False):
-            raise ValueError(
-                "collision_avoidance requires use_model_contact_matrix=true"
-            )
-
-        self.ik_limits.append(
-            mink.CollisionAvoidanceLimit(
-                self.model,
-                self.model_collision_geom_pairs(),
-                gain=config.get("gain", 0.85),
-                minimum_distance_from_collisions=config.get(
-                    "minimum_distance", 0.0
-                ),
-                collision_detection_distance=config.get(
-                    "detection_distance", 0.05
-                ),
-                bound_relaxation=config.get("bound_relaxation", 0.0),
-            )
-        )
-
-    def model_collision_geom_pairs(self):
-        """Return self-collision pairs allowed by the compiled MuJoCo model."""
-        model = self.model
-        excluded_bodies = set(model.exclude_signature.tolist())
-        filter_parent = not (
-            model.opt.disableflags & mj.mjtDisableBit.mjDSBL_FILTERPARENT
-        )
-        collidable_geoms = [
-            geom_id
-            for geom_id in range(model.ngeom)
-            if model.geom_contype[geom_id] or model.geom_conaffinity[geom_id]
-        ]
-        geom_pairs = []
-        for index, geom1 in enumerate(collidable_geoms):
-            body1 = int(model.geom_bodyid[geom1])
-            if body1 == 0:
-                continue
-            weld1 = int(model.body_weldid[body1])
-            allowed_geom2 = []
-            for geom2 in collidable_geoms[index + 1 :]:
-                body2 = int(model.geom_bodyid[geom2])
-                if body2 == 0:
-                    continue
-                weld2 = int(model.body_weldid[body2])
-                if weld1 == weld2:
-                    continue
-                if filter_parent and (
-                    int(model.body_parentid[weld1]) == weld2
-                    or int(model.body_parentid[weld2]) == weld1
-                ):
-                    continue
-                if not (
-                    model.geom_contype[geom1] & model.geom_conaffinity[geom2]
-                    or model.geom_contype[geom2] & model.geom_conaffinity[geom1]
-                ):
-                    continue
-                body_signature = (min(body1, body2) << 16) + max(body1, body2)
-                if body_signature in excluded_bodies:
-                    continue
-                allowed_geom2.append(geom2)
-            if allowed_geom2:
-                geom_pairs.append(([geom1], allowed_geom2))
-        return geom_pairs
-
-    def add_posture_task(self, posture_costs):
-        if posture_costs is None:
-            return
-        costs = np.zeros(self.model.nv)
-        for joint_name, cost in posture_costs.items():
-            joint = self.model.joint(joint_name)
-            costs[int(joint.dofadr[0])] = cost
-        posture_task = mink.PostureTask(self.model, cost=costs)
-        posture_task.set_target(self.model.qpos0)
-        self.tasks1.append(posture_task)
-        self.tasks2.append(posture_task)
+    def velocity_limited_joint_names(self):
+        names = []
+        for actuator_id in range(self.model.nu):
+            transmission = self.model.actuator_trntype[actuator_id]
+            target_id = int(self.model.actuator_trnid[actuator_id, 0])
+            if transmission in {
+                mj.mjtTrn.mjTRN_JOINT,
+                mj.mjtTrn.mjTRN_JOINTINPARENT,
+            }:
+                joint_name = self.model.joint(target_id).name
+            elif transmission == mj.mjtTrn.mjTRN_TENDON and self.tgt_robot == "bello":
+                tendon_name = self.model.tendon(target_id).name
+                joint_name = BELLO_ANKLE_TENDON_LOGICAL_JOINT.get(tendon_name)
+            else:
+                joint_name = None
+            if joint_name is None:
+                actuator_name = self.model.actuator(actuator_id).name
+                raise ValueError(
+                    f"actuator {actuator_name!r} has no velocity-limit joint mapping"
+                )
+            names.append(joint_name)
+        if len(set(names)) != len(names):
+            raise ValueError("velocity-limit actuator joint mappings must be unique")
+        return tuple(names)
 
     def setup_retarget_configuration(self):
         self.configuration = mink.Configuration(self.model)
@@ -218,6 +181,10 @@ class GeneralMotionRetargeting:
         
         for frame_name, entry in self.ik_match_table1.items():
             body_name, pos_weight, rot_weight, pos_offset, rot_offset = entry
+            self.pos_offsets1[body_name] = np.array(pos_offset) - self.ground
+            self.rot_offsets1[body_name] = R.from_quat(
+                rot_offset, scalar_first=True
+            )
             if pos_weight != 0 or rot_weight != 0:
                 task = mink.FrameTask(
                     frame_name=frame_name,
@@ -227,15 +194,15 @@ class GeneralMotionRetargeting:
                     lm_damping=1,
                 )
                 self.human_body_to_task1[body_name] = task
-                self.pos_offsets1[body_name] = np.array(pos_offset) - self.ground
-                self.rot_offsets1[body_name] = R.from_quat(
-                    rot_offset, scalar_first=True
-                )
                 self.tasks1.append(task)
                 self.task_errors1[task] = []
         
         for frame_name, entry in self.ik_match_table2.items():
             body_name, pos_weight, rot_weight, pos_offset, rot_offset = entry
+            self.pos_offsets2[body_name] = np.array(pos_offset) - self.ground
+            self.rot_offsets2[body_name] = R.from_quat(
+                rot_offset, scalar_first=True
+            )
             if pos_weight != 0 or rot_weight != 0:
                 task = mink.FrameTask(
                     frame_name=frame_name,
@@ -245,10 +212,6 @@ class GeneralMotionRetargeting:
                     lm_damping=1,
                 )
                 self.human_body_to_task2[body_name] = task
-                self.pos_offsets2[body_name] = np.array(pos_offset) - self.ground
-                self.rot_offsets2[body_name] = R.from_quat(
-                    rot_offset, scalar_first=True
-                )
                 self.tasks2.append(task)
                 self.task_errors2[task] = []
 
@@ -258,6 +221,7 @@ class GeneralMotionRetargeting:
         human_data = self.to_numpy(human_data)
         human_data = self.scale_human_data(human_data, self.human_root_name, self.human_scale_table)
         human_data = self.offset_human_data(human_data, self.pos_offsets1, self.rot_offsets1)
+        human_data = self.align_human_data_to_ground(human_data)
         human_data = self.apply_ground_offset(human_data)
         if offset_to_ground:
             human_data = self.offset_human_data_to_ground(human_data)
@@ -326,7 +290,6 @@ class GeneralMotionRetargeting:
             num_iter = 0
             while curr_error - next_error > 0.001 and num_iter < self.max_iter:
                 curr_error = next_error
-                # Solve the IK problem with the second task
                 dt = self.configuration.model.opt.timestep
                 vel2 = mink.solve_ik(
                     self.configuration,
@@ -337,26 +300,30 @@ class GeneralMotionRetargeting:
                     limits=self.ik_limits,
                 )
                 self.configuration.integrate_inplace(vel2, dt)
-                
                 next_error = self.error2()
                 num_iter += 1
-                
-            
-        qpos = self.limit_output_velocity(self.configuration.data.qpos.copy())
-        self.configuration.update(qpos)
-        return qpos
 
-    def limit_output_velocity(self, qpos):
-        if self.velocity_limited_qpos_addresses and self.previous_output_qpos is not None:
-            addresses = self.velocity_limited_qpos_addresses
-            max_delta = self.max_joint_velocity / self.source_fps
-            qpos[addresses] = np.clip(
-                qpos[addresses],
-                self.previous_output_qpos[addresses] - max_delta,
-                self.previous_output_qpos[addresses] + max_delta,
+        self.enforce_ground_clearance()
+        return self.configuration.data.qpos.copy()
+
+    def enforce_ground_clearance(self):
+        if not self.ground_clearance_geom_ids:
+            return
+        lowest_height = min(
+            self.configuration.data.geom_xpos[geom_id, 2]
+            - np.sum(
+                np.abs(
+                    self.configuration.data.geom_xmat[geom_id].reshape(3, 3)[2]
+                )
+                * self.model.geom_size[geom_id]
             )
-        self.previous_output_qpos = qpos.copy()
-        return qpos
+            for geom_id in self.ground_clearance_geom_ids
+        )
+        ground_height = float(self.ground[2])
+        if lowest_height < ground_height - 1e-10:
+            qpos = self.configuration.data.qpos.copy()
+            qpos[self.root_height_qpos_address] += ground_height - lowest_height
+            self.configuration.update(qpos)
 
 
     def error1(self):
@@ -411,8 +378,6 @@ class GeneralMotionRetargeting:
         for body_name in human_data.keys():
             pos, quat = human_data[body_name]
             offset_human_data[body_name] = [pos, quat]
-            if body_name not in rot_offsets:
-                continue
             # apply rotation offset first
             updated_quat = (R.from_quat(quat, scalar_first=True) * rot_offsets[body_name]).as_quat(scalar_first=True)
             offset_human_data[body_name][1] = updated_quat
@@ -443,6 +408,36 @@ class GeneralMotionRetargeting:
             offset_human_data[body_name] = [pos, quat]
             offset_human_data[body_name][0] = pos - np.array([0, 0, lowest_pos]) + np.array([0, 0, ground_offset])
         return offset_human_data
+
+    def align_human_data_to_ground(self, human_data):
+        world_up = np.array([0.0, 0.0, 1.0])
+        for body_name, local_axis in self.ground_alignment_axes.items():
+            position, quaternion = human_data[body_name]
+            target_rotation = R.from_quat(quaternion, scalar_first=True)
+            current_normal = target_rotation.apply(local_axis)
+            dot = np.clip(np.dot(current_normal, world_up), -1.0, 1.0)
+            if dot < -1.0 + 1e-8:
+                perpendicular = np.cross(current_normal, np.array([1.0, 0.0, 0.0]))
+                if np.linalg.norm(perpendicular) < 1e-8:
+                    perpendicular = np.cross(
+                        current_normal, np.array([0.0, 1.0, 0.0])
+                    )
+                correction = R.from_rotvec(
+                    np.pi * perpendicular / np.linalg.norm(perpendicular)
+                )
+            else:
+                correction_quaternion = np.concatenate(
+                    ([1.0 + dot], np.cross(current_normal, world_up))
+                )
+                correction_quaternion /= np.linalg.norm(correction_quaternion)
+                correction = R.from_quat(
+                    correction_quaternion, scalar_first=True
+                )
+            human_data[body_name] = [
+                position,
+                (correction * target_rotation).as_quat(scalar_first=True),
+            ]
+        return human_data
 
     def set_ground_offset(self, ground_offset):
         self.ground_offset = ground_offset

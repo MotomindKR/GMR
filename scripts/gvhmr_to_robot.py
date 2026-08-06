@@ -82,7 +82,6 @@ if __name__ == "__main__":
         actual_human_height=actual_human_height,
         src_human="smplx",
         tgt_robot=args.robot,
-        source_fps=aligned_fps,
     )
     
     robot_motion_viewer = RobotMotionViewer(robot_type=args.robot,

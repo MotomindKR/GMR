@@ -77,14 +77,20 @@ def test_box_model_uses_horizontal_primitive_soles() -> None:
             if model.geom(geom_id).name.startswith(prefix)
         ]
         assert len(foot_geom_ids) == 5
-        assert sum(
-            model.geom_type[geom_id] == mujoco.mjtGeom.mjGEOM_BOX
-            for geom_id in foot_geom_ids
-        ) == 3
-        assert sum(
-            model.geom_type[geom_id] == mujoco.mjtGeom.mjGEOM_CYLINDER
-            for geom_id in foot_geom_ids
-        ) == 2
+        assert (
+            sum(
+                model.geom_type[geom_id] == mujoco.mjtGeom.mjGEOM_BOX
+                for geom_id in foot_geom_ids
+            )
+            == 3
+        )
+        assert (
+            sum(
+                model.geom_type[geom_id] == mujoco.mjtGeom.mjGEOM_CYLINDER
+                for geom_id in foot_geom_ids
+            )
+            == 2
+        )
 
         sole_id = model.geom(f"{prefix}box_1").id
         sole_normal = data.geom_xmat[sole_id].reshape(3, 3)[:, 2]
@@ -98,18 +104,129 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
     for landmark in ("hip", "knee", "foot", "shoulder", "elbow", "wrist"):
         assert scales[f"left_{landmark}"] == scales[f"right_{landmark}"]
 
-    for table_name in ("ik_match_table1", "ik_match_table2"):
-        for body_name in config[table_name]:
+    table1 = config["ik_match_table1"]
+    table2 = config["ik_match_table2"]
+    assert {entry[0] for entry in table1.values()} == set(scales)
+    assert {entry[0] for entry in table2.values()} == set(scales)
+    for table in (table1, table2):
+        for body_name, entry in table.items():
             assert model.body(body_name).id >= 0
-    for body_name, entry in config["ik_match_table2"].items():
-        if any(token in body_name for token in ("shoulder", "elbow", "wrist")):
-            assert entry[2] == 0
+            np.testing.assert_allclose(np.linalg.norm(entry[4]), 1.0, atol=1e-8)
 
-    assert config["collision_avoidance"]["use_model_contact_matrix"] is True
-    assert config["posture_costs"] == {
-        "left_wrist_pitch_joint": 10.0,
-        "right_wrist_pitch_joint": 10.0,
+    expected_arm_weights = {
+        "l_upper_arm_link": ((0, 10), (0, 5)),
+        "l_elbow_link": ((0, 10), (50, 5)),
+        "l_wrist_link": ((0, 2), (40, 1)),
+        "r_upper_arm_link": ((0, 10), (0, 5)),
+        "r_elbow_link": ((0, 10), (50, 5)),
+        "r_wrist_link": ((0, 2), (40, 1)),
     }
+    for body_name, (stage1, stage2) in expected_arm_weights.items():
+        assert tuple(table1[body_name][1:3]) == stage1
+        assert tuple(table2[body_name][1:3]) == stage2
+
+    assert table1["left_ankle_roll_link"][1:3] == [100, [20, 0, 20]]
+    assert table1["right_ankle_roll_link"][1:3] == [100, [20, 0, 20]]
+    assert table2["left_ankle_roll_link"][1:3] == [100, [20, 0, 20]]
+    assert table2["right_ankle_roll_link"][1:3] == [100, [20, 0, 20]]
+    assert tuple(table2["left_hip_roll_link"][1:3]) == (20, 0)
+    assert tuple(table2["right_hip_roll_link"][1:3]) == (20, 0)
+    assert tuple(table1["left_knee_link"][1:3]) == (0, 50)
+    assert tuple(table1["right_knee_link"][1:3]) == (0, 50)
+    assert tuple(table2["left_knee_link"][1:3]) == (10, 50)
+    assert tuple(table2["right_knee_link"][1:3]) == (10, 50)
+    expected_knee_offsets = {
+        "left_knee_link": np.array(
+            [0.500926591475, 0.489716132629, 0.534047445216, 0.473332848696]
+        ),
+        "right_knee_link": np.array(
+            [-0.395393636381, -0.601919070832, -0.605627097806, -0.33848651802]
+        ),
+    }
+    for body_name, expected_offset in expected_knee_offsets.items():
+        np.testing.assert_allclose(table1[body_name][4], expected_offset)
+        np.testing.assert_allclose(table2[body_name][4], expected_offset)
+    assert config["ground_alignment_axes"] == {
+        "left_foot": [0.0, 1.0, 0.0],
+        "right_foot": [0.0, -1.0, 0.0],
+    }
+    assert config["ground_clearance_geoms"] == [
+        "left_ankle_roll_link_collision_box_1",
+        "right_ankle_roll_link_collision_box_1",
+    ]
+
+    forbidden_solver_keys = {
+        "collision_avoidance",
+        "fixed_iterations",
+        "joint_acceleration_limits",
+        "joint_position_limits",
+        "max_joint_velocity",
+        "posture_costs",
+        "posture_targets",
+        "use_velocity_limit",
+    }
+    assert forbidden_solver_keys.isdisjoint(config)
+
+
+def test_bello_ankle_roll_range_requires_bello_specific_lower_body_mapping() -> None:
+    model, _ = load_models()
+    expected_range = np.array([-0.0873, 0.0873])
+    for side in ("left", "right"):
+        np.testing.assert_allclose(
+            model.joint(f"{side}_ankle_roll_joint").range,
+            expected_range,
+            atol=1e-7,
+        )
+
+
+def test_ground_alignment_projects_configured_local_axis_to_world_up() -> None:
+    retargeter = object.__new__(GeneralMotionRetargeting)
+    retargeter.ground_alignment_axes = {
+        "left_foot": np.array([0.0, 1.0, 0.0]),
+        "right_foot": np.array([0.0, -1.0, 0.0]),
+    }
+    input_rotation = mink.SO3.from_rpy_radians(0.4, -0.3, 1.2)
+    human_data = {
+        body_name: [np.zeros(3), input_rotation.wxyz]
+        for body_name in retargeter.ground_alignment_axes
+    }
+
+    aligned = retargeter.align_human_data_to_ground(human_data)
+
+    for body_name, local_axis in retargeter.ground_alignment_axes.items():
+        rotation = mink.SO3(aligned[body_name][1])
+        np.testing.assert_allclose(
+            rotation.as_matrix() @ local_axis,
+            np.array([0.0, 0.0, 1.0]),
+            atol=1e-8,
+        )
+
+
+def test_bello_ground_clearance_only_raises_penetrating_soles() -> None:
+    retargeter = GeneralMotionRetargeting(
+        src_human="smplx",
+        tgt_robot="bello",
+        actual_human_height=1.66,
+        verbose=False,
+    )
+    retargeter.enforce_ground_clearance()
+    grounded_qpos = retargeter.configuration.data.qpos.copy()
+    retargeter.enforce_ground_clearance()
+    np.testing.assert_array_equal(retargeter.configuration.data.qpos, grounded_qpos)
+
+    lowered_qpos = grounded_qpos.copy()
+    lowered_qpos[retargeter.root_height_qpos_address] -= 1.0
+    retargeter.configuration.update(lowered_qpos)
+    retargeter.enforce_ground_clearance()
+
+    for geom_id in retargeter.ground_clearance_geom_ids:
+        sole_height = retargeter.configuration.data.geom_xpos[geom_id, 2] - np.sum(
+            np.abs(
+                retargeter.configuration.data.geom_xmat[geom_id].reshape(3, 3)[2]
+            )
+            * retargeter.model.geom_size[geom_id]
+        )
+        assert sole_height >= -1e-10
 
 
 def test_bello_uses_shared_retargeter() -> None:
@@ -118,50 +235,92 @@ def test_bello_uses_shared_retargeter() -> None:
         tgt_robot="bello",
         actual_human_height=1.66,
         verbose=False,
-        use_velocity_limit=True,
     )
     assert type(retargeter) is GeneralMotionRetargeting
+    assert retargeter.max_iter == 10
+    assert len(retargeter.ik_limits) == 1
+    assert isinstance(retargeter.ik_limits[0], mink.ConfigurationLimit)
+    assert not any(
+        isinstance(task, mink.PostureTask)
+        for task in (*retargeter.tasks1, *retargeter.tasks2)
+    )
+    assert not hasattr(retargeter, "previous_output_qpos")
+    assert not hasattr(retargeter, "fixed_iterations")
 
-    posture_tasks = [
-        task for task in retargeter.tasks1 if isinstance(task, mink.PostureTask)
-    ]
-    assert len(posture_tasks) == 1
-    posture_cost = posture_tasks[0].cost
-    expected_cost = np.zeros(retargeter.model.nv)
     for side in ("left", "right"):
-        dof_address = retargeter.model.joint(
-            f"{side}_wrist_pitch_joint"
-        ).dofadr[0]
-        expected_cost[dof_address] = 10.0
-    np.testing.assert_array_equal(posture_cost, expected_cost)
+        assert f"{side}_hip" in retargeter.rot_offsets1
+        assert f"{side}_knee" in retargeter.rot_offsets1
+        assert f"{side}_hip" not in retargeter.human_body_to_task1
+        assert f"{side}_knee" in retargeter.human_body_to_task1
 
-    initial = retargeter.configuration.data.qpos.copy()
-    retargeter.previous_output_qpos = initial.copy()
-    candidate = initial.copy()
-    candidate[retargeter.velocity_limited_qpos_addresses] += 1.0
-    limited = retargeter.limit_output_velocity(candidate)
-    max_delta = retargeter.max_joint_velocity / retargeter.source_fps
-    np.testing.assert_allclose(
-        limited[retargeter.velocity_limited_qpos_addresses]
-        - initial[retargeter.velocity_limited_qpos_addresses],
-        max_delta,
+
+def test_velocity_limit_is_an_explicit_shared_solver_option() -> None:
+    retargeter = GeneralMotionRetargeting(
+        src_human="smplx",
+        tgt_robot="bello",
+        actual_human_height=1.66,
+        verbose=False,
+        use_velocity_limit=True,
+    )
+    assert len(retargeter.ik_limits) == 2
+    assert isinstance(retargeter.ik_limits[0], mink.ConfigurationLimit)
+    assert isinstance(retargeter.ik_limits[1], mink.VelocityLimit)
+
+
+def test_bello_velocity_limit_maps_differential_ankle_tendons() -> None:
+    model = mujoco.MjModel.from_xml_string(
+        """
+        <mujoco>
+          <worldbody>
+            <body><freejoint/><geom type="sphere" size=".01"/>
+              <body><joint name="left_ankle_pitch_joint"/><geom size=".01"/></body>
+              <body><joint name="left_ankle_roll_joint"/><geom size=".01"/></body>
+              <body><joint name="right_ankle_pitch_joint"/><geom size=".01"/></body>
+              <body><joint name="right_ankle_roll_joint"/><geom size=".01"/></body>
+            </body>
+          </worldbody>
+          <tendon>
+            <fixed name="left_ankle_motor_1"><joint joint="left_ankle_pitch_joint" coef="1"/></fixed>
+            <fixed name="left_ankle_motor_2"><joint joint="left_ankle_roll_joint" coef="1"/></fixed>
+            <fixed name="right_ankle_motor_1"><joint joint="right_ankle_pitch_joint" coef="1"/></fixed>
+            <fixed name="right_ankle_motor_2"><joint joint="right_ankle_roll_joint" coef="1"/></fixed>
+          </tendon>
+          <actuator>
+            <position name="left_1" tendon="left_ankle_motor_1"/>
+            <position name="left_2" tendon="left_ankle_motor_2"/>
+            <position name="right_1" tendon="right_ankle_motor_1"/>
+            <position name="right_2" tendon="right_ankle_motor_2"/>
+          </actuator>
+        </mujoco>
+        """
+    )
+    retargeter = object.__new__(GeneralMotionRetargeting)
+    retargeter.model = model
+    retargeter.tgt_robot = "bello"
+
+    assert retargeter.velocity_limited_joint_names() == (
+        "left_ankle_pitch_joint",
+        "left_ankle_roll_joint",
+        "right_ankle_pitch_joint",
+        "right_ankle_roll_joint",
     )
 
 
-def test_bello_posture_regularizer_does_not_change_unitree_tasks() -> None:
+def test_bello_mapping_does_not_change_unitree_tasks() -> None:
     retargeter = GeneralMotionRetargeting(
         src_human="smplx",
         tgt_robot="unitree_g1",
         actual_human_height=1.66,
         verbose=False,
     )
+    assert retargeter.max_iter == 10
     assert not any(
         isinstance(task, mink.PostureTask)
         for task in (*retargeter.tasks1, *retargeter.tasks2)
     )
 
 
-def test_collision_matrix_matches_depth_two_body_neighborhood() -> None:
+def test_simulation_collision_matrix_is_not_an_ik_constraint() -> None:
     model, _ = load_models()
     graph = {body_id: set() for body_id in range(1, model.nbody)}
     for body_id in graph:
@@ -181,21 +340,3 @@ def test_collision_matrix_matches_depth_two_body_neighborhood() -> None:
 
     assert set(model.exclude_signature.tolist()) == expected_exclusions
     assert model.nexclude == 78
-
-    retargeter = GeneralMotionRetargeting(
-        src_human="smplx",
-        tgt_robot="bello",
-        actual_human_height=1.66,
-        verbose=False,
-    )
-    collision_limit = retargeter.ik_limits[-1]
-    ik_pairs = {
-        frozenset(pair) for pair in collision_limit.geom_id_pairs
-    }
-    assert len(ik_pairs) == len(collision_limit.geom_id_pairs) == 669
-    for pair in ik_pairs:
-        geom1, geom2 = pair
-        body1 = int(model.geom_bodyid[geom1])
-        body2 = int(model.geom_bodyid[geom2])
-        signature = (min(body1, body2) << 16) + max(body1, body2)
-        assert signature not in expected_exclusions

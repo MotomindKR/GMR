@@ -221,20 +221,6 @@ conda install -c conda-forge libstdcxx-ng -y
 
 [[LAFAN1](https://github.com/ubisoft/ubisoft-laforge-animation-dataset) motion data] download raw LAFAN1 bvh files from [the official repo](https://github.com/ubisoft/ubisoft-laforge-animation-dataset), i.e., [lafan1.zip](https://github.com/ubisoft/ubisoft-laforge-animation-dataset/blob/master/lafan1/lafan1.zip).
 
-To extract the complete archive, convert each sequence to the same minimal-twist
-SMPL-X convention used by the Bello validation motions, and retarget all frames
-to fixed-head, fixed-waist Bello:
-
-```bash
-nix develop -c python scripts/prepare_lafan1_bello_dataset.py --jobs 8
-```
-
-The resumable pipeline writes SMPL-X intermediates under
-`motion_data/lafan1_smplx`, Bello GMR pickles under
-`motion_data/lafan1_bello`, and a hash/duration manifest alongside the Bello
-motions. These generated, license-controlled dataset files are ignored by Git.
-
-
 ## Human/Robot Motion Data Formulation
 
 To better use this library, you can first have an understanding of the human motion data we use and the robot motion data we obtain.
@@ -318,26 +304,6 @@ Bello uses a primitive-box collision model, has local `+Y` as its forward
 direction, and exposes 25 actuated joints. Waist roll/pitch and the two
 head/neck joints are fixed. Asset generation and contact-matrix details are recorded in
 [`assets/bello/README.md`](assets/bello/README.md).
-
-### Bello reference stream
-
-The MotomindKR fork can publish fixed-head Bello targets through the versioned
-gRPC protocol in `proto/reference.proto`. The consumer supplies an exact robot
-XML hash, so pass the same generated MJCF to the producer and policy runtime.
-
-Replay a canonical NPZ or trusted GMR pickle:
-
-```bash
-python scripts/stream_bello_reference.py motion.npz \
-  --robot-xml /absolute/path/to/bello.xml \
-  --listen 127.0.0.1:50053
-```
-
-For live Xsens retargeting, use `scripts/xsens_live_streaming.py --robot bello
---robot_xml /absolute/path/to/bello.xml --reference_listen
-127.0.0.1:50053`. Consumers receive model/joint metadata followed by
-latest-wins root pose, local root velocity, 25 joint targets, and
-`ACTIVE`/`HOLD`/`STOP` state.
 
 By default you should see the visualization of the retargeted robot motion in a mujoco window.
 If you want to record video, add `--record_video` and `--video_path <your_video_path,mp4>`.

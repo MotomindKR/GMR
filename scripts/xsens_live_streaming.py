@@ -15,7 +15,7 @@ from rich import print
 
 from general_motion_retargeting.utils.xsens_vendor.xsens_to_gmr_adapter import XsensToGMR
 from general_motion_retargeting import GeneralMotionRetargeting as GMR
-from general_motion_retargeting import BelloReferenceServer, RobotMotionViewer
+from general_motion_retargeting import RobotMotionViewer
 
 # Global flag for graceful shutdown
 g_running = True
@@ -46,19 +46,8 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--robot",
-        choices=["unitree_g1", "bello"],
+        choices=["unitree_g1"],
         default="unitree_g1",
-    )
-    parser.add_argument(
-        "--robot_xml",
-        type=str,
-        default=None,
-        help="External robot MJCF; required for fixed-head Bello streaming",
-    )
-    parser.add_argument(
-        "--reference_listen",
-        default=None,
-        help="Publish Bello qpos on this gRPC address, e.g. 127.0.0.1:50053",
     )
 
     parser.add_argument(
@@ -109,10 +98,6 @@ if __name__ == "__main__":
 
     # ---- Initialize retargeter ----
     print("[2/3] Initializing retargeter...")
-    if args.robot == "bello" and args.robot_xml is None:
-        parser.error("--robot_xml is required for fixed-head Bello")
-    if args.reference_listen is not None and args.robot != "bello":
-        parser.error("--reference_listen is only valid with --robot bello")
     retargeter = GMR(
         src_human="xsens_mvn",
         tgt_robot=args.robot,
@@ -120,17 +105,7 @@ if __name__ == "__main__":
         solver="daqp",
         damping=1.0,
         use_velocity_limit=True,
-        robot_xml_path=args.robot_xml,
     )
-    reference_server = None
-    if args.reference_listen is not None:
-        reference_server = BelloReferenceServer(
-            args.robot_xml,
-            listen=args.reference_listen,
-            source_id="xsens-gmr",
-            nominal_rate_hz=target_fps,
-        )
-        reference_server.__enter__()
 
     # ---- Initialize viewer ----
     print("[3/3] Initializing viewer...")
@@ -189,8 +164,6 @@ if __name__ == "__main__":
 
             last_valid_qpos = qpos.copy()
             last_valid_human_frame = retargeter.scaled_human_data
-            if reference_server is not None:
-                reference_server.publish_qpos(qpos)
 
             # Visualize
             robot_motion_viewer.step(
@@ -224,10 +197,6 @@ if __name__ == "__main__":
     finally:
         # Stop streaming
         xsens.stop()
-        if reference_server is not None:
-            if last_valid_qpos is not None:
-                reference_server.publish_qpos(last_valid_qpos, mode="stop")
-            reference_server.__exit__(None, None, None)
 
         # Save trajectory
         if args.save_dir is not None and qpos_list:

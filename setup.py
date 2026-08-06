@@ -27,7 +27,6 @@ setup(
     "protobuf",
     "redis[hiredis]",
     "imageio[ffmpeg]",
-    "grpcio>=1.81,<2",
   ],
   python_requires='>=3.10',
 )

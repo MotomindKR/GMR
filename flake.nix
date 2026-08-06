@@ -50,7 +50,7 @@
 
             if [ ! -x "$UV_PROJECT_ENVIRONMENT/bin/python" ] \
               || [ "$(cat "$stamp" 2>/dev/null)" != "$lock_hash" ] \
-              || ! "$UV_PROJECT_ENVIRONMENT/bin/python" -c "import grpc, mujoco" 2>/dev/null; then
+              || ! "$UV_PROJECT_ENVIRONMENT/bin/python" -c "import mujoco" 2>/dev/null; then
               uv venv --python ${pkgs.python311}/bin/python --clear "$UV_PROJECT_ENVIRONMENT"
               uv pip sync \
                 --python "$UV_PROJECT_ENVIRONMENT/bin/python" \
