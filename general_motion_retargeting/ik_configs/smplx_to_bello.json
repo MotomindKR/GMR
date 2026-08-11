@@ -13,6 +13,11 @@
         "left_ankle_roll_link_collision_box_1",
         "right_ankle_roll_link_collision_box_1"
     ],
+    "offline_solver": {
+        "passes_per_frame": 5,
+        "max_joint_velocity_radians_per_second": 9.42477796076938,
+        "max_joint_acceleration_radians_per_second_squared": 200.0
+    },
     "human_scale_table": {
         "pelvis": 1.05,
         "spine3": 0.57,
@@ -23,11 +28,11 @@
         "right_knee": 0.98,
         "right_foot": 0.86,
         "left_shoulder": 0.98,
-        "left_elbow": 0.9,
-        "left_wrist": 1.0,
+        "left_elbow": 0.98,
+        "left_wrist": 0.98,
         "right_shoulder": 0.98,
-        "right_elbow": 0.9,
-        "right_wrist": 1.0
+        "right_elbow": 0.98,
+        "right_wrist": 0.98
     },
     "ik_match_table1": {
         "bello_root": [
@@ -41,7 +46,7 @@
             [0.0, 0.000000372186085784, -0.9999999999999307, 0.0]
         ],
         "left_knee_link": [
-            "left_knee", 0, 10,
+            "left_knee", 0, 0,
             [0.0, 0.0, 0.0],
             [0.500926591475, 0.489716132629, 0.534047445216, 0.473332848696]
         ],
@@ -56,7 +61,7 @@
             [-0.000000372186085784, 0.0, 0.0, -0.9999999999999307]
         ],
         "right_knee_link": [
-            "right_knee", 0, 10,
+            "right_knee", 0, 0,
             [0.0, 0.0, 0.0],
             [-0.395393636381, -0.601919070832, -0.605627097806, -0.33848651802]
         ],
@@ -113,7 +118,7 @@
             [0.0, 0.000000372186085784, -0.9999999999999307, 0.0]
         ],
         "left_knee_link": [
-            "left_knee", 10, 5,
+            "left_knee", 50, 0,
             [0.0, 0.0, 0.0],
             [0.500926591475, 0.489716132629, 0.534047445216, 0.473332848696]
         ],
@@ -128,7 +133,7 @@
             [-0.000000372186085784, 0.0, 0.0, -0.9999999999999307]
         ],
         "right_knee_link": [
-            "right_knee", 10, 5,
+            "right_knee", 50, 0,
             [0.0, 0.0, 0.0],
             [-0.395393636381, -0.601919070832, -0.605627097806, -0.33848651802]
         ],

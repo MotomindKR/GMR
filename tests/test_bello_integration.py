@@ -145,10 +145,10 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
     assert tuple(table2["right_hip_roll_link"][1:3]) == (20, 0)
     assert tuple(table1["bello_root"][1:3]) == (100, 10)
     assert tuple(table2["bello_root"][1:3]) == (100, 5)
-    assert tuple(table1["left_knee_link"][1:3]) == (0, 10)
-    assert tuple(table1["right_knee_link"][1:3]) == (0, 10)
-    assert tuple(table2["left_knee_link"][1:3]) == (10, 5)
-    assert tuple(table2["right_knee_link"][1:3]) == (10, 5)
+    assert tuple(table1["left_knee_link"][1:3]) == (0, 0)
+    assert tuple(table1["right_knee_link"][1:3]) == (0, 0)
+    assert tuple(table2["left_knee_link"][1:3]) == (50, 0)
+    assert tuple(table2["right_knee_link"][1:3]) == (50, 0)
     expected_knee_offsets = {
         "left_knee_link": np.array(
             [0.500926591475, 0.489716132629, 0.534047445216, 0.473332848696]
@@ -168,6 +168,11 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
         "left_ankle_roll_link_collision_box_1",
         "right_ankle_roll_link_collision_box_1",
     ]
+    assert config["offline_solver"] == {
+        "passes_per_frame": 5,
+        "max_joint_velocity_radians_per_second": 3.0 * np.pi,
+        "max_joint_acceleration_radians_per_second_squared": 200.0,
+    }
 
     forbidden_solver_keys = {
         "collision_avoidance",
@@ -265,7 +270,8 @@ def test_bello_uses_shared_retargeter() -> None:
         assert f"{side}_hip" in retargeter.rot_offsets1
         assert f"{side}_knee" in retargeter.rot_offsets1
         assert f"{side}_hip" not in retargeter.human_body_to_task1
-        assert f"{side}_knee" in retargeter.human_body_to_task1
+        assert f"{side}_knee" not in retargeter.human_body_to_task1
+        assert f"{side}_knee" in retargeter.human_body_to_task2
 
 
 def test_velocity_limit_is_an_explicit_shared_solver_option() -> None:
