@@ -9,7 +9,7 @@ import pickle
 import imageio.v2 as imageio
 import mujoco
 import numpy as np
-from scipy.spatial.transform import Rotation
+from scipy.spatial.transform import Rotation, Slerp
 import smplx
 import torch
 
@@ -27,12 +27,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--panel-width", type=int, default=640)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--azimuth", type=float, default=0.0)
+    parser.add_argument("--robot-xml", type=Path, default=None)
+    parser.add_argument("--max-seconds", type=float, default=None)
+    parser.add_argument("--render-fps", type=float, default=25.0)
     return parser.parse_args()
 
 
 def load_human_meshes(
-    path: Path, body_model_dir: Path
-) -> tuple[np.ndarray, np.ndarray, float]:
+    path: Path, body_model_dir: Path, target_times: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     with np.load(path, allow_pickle=False) as data:
         gender = str(np.asarray(data["gender"]).item())
         root_orient = np.asarray(data["root_orient"], dtype=np.float32)
@@ -40,13 +43,27 @@ def load_human_meshes(
         translation = np.asarray(data["trans"], dtype=np.float32)
         betas = np.asarray(data["betas"], dtype=np.float32).reshape(-1)
         fps = float(data["mocap_frame_rate"])
-    frame_count = len(root_orient)
-    if body_pose.shape != (frame_count, 63):
+    source_frame_count = len(root_orient)
+    if body_pose.shape != (source_frame_count, 63):
         raise ValueError(f"invalid SMPL-X body pose shape: {body_pose.shape}")
-    if translation.shape != (frame_count, 3):
+    if translation.shape != (source_frame_count, 3):
         raise ValueError(f"invalid SMPL-X translation shape: {translation.shape}")
     if fps <= 0.0:
         raise ValueError("SMPL-X frame rate must be positive")
+    source_times = np.arange(source_frame_count, dtype=np.float64) / fps
+    target_times = np.clip(target_times, source_times[0], source_times[-1])
+    root_orient = interpolate_rotvec(source_times, root_orient, target_times)
+    body_pose = interpolate_rotvec(
+        source_times, body_pose.reshape(source_frame_count, -1, 3), target_times
+    ).reshape(len(target_times), 63)
+    translation = np.stack(
+        [
+            np.interp(target_times, source_times, translation[:, axis])
+            for axis in range(3)
+        ],
+        axis=1,
+    ).astype(np.float32)
+    frame_count = len(target_times)
 
     body_model = smplx.create(
         body_model_dir,
@@ -55,28 +72,61 @@ def load_human_meshes(
         use_pca=False,
         num_betas=len(betas),
     )
-    repeated_betas = np.broadcast_to(betas, (frame_count, len(betas))).copy()
-    zero_pose = torch.zeros((frame_count, 3), dtype=torch.float32)
-    with torch.no_grad():
-        output = body_model(
-            betas=torch.from_numpy(repeated_betas),
-            global_orient=torch.from_numpy(root_orient),
-            body_pose=torch.from_numpy(body_pose),
-            left_hand_pose=torch.zeros((frame_count, 45), dtype=torch.float32),
-            right_hand_pose=torch.zeros((frame_count, 45), dtype=torch.float32),
-            jaw_pose=zero_pose,
-            leye_pose=zero_pose,
-            reye_pose=zero_pose,
-            expression=torch.zeros((frame_count, 10), dtype=torch.float32),
-            transl=torch.from_numpy(translation),
-        )
-    vertices = output.vertices.detach().cpu().numpy()
+    vertices = []
+    with torch.inference_mode():
+        for start in range(0, frame_count, 128):
+            stop = min(start + 128, frame_count)
+            chunk_frames = stop - start
+            repeated_betas = np.broadcast_to(
+                betas, (chunk_frames, len(betas))
+            ).copy()
+            zero_pose = torch.zeros((chunk_frames, 3), dtype=torch.float32)
+            output = body_model(
+                betas=torch.from_numpy(repeated_betas),
+                global_orient=torch.from_numpy(root_orient[start:stop]),
+                body_pose=torch.from_numpy(body_pose[start:stop]),
+                left_hand_pose=torch.zeros((chunk_frames, 45), dtype=torch.float32),
+                right_hand_pose=torch.zeros((chunk_frames, 45), dtype=torch.float32),
+                jaw_pose=zero_pose,
+                leye_pose=zero_pose,
+                reye_pose=zero_pose,
+                expression=torch.zeros((chunk_frames, 10), dtype=torch.float32),
+                transl=torch.from_numpy(translation[start:stop]),
+            )
+            vertices.append(output.vertices.detach().cpu().numpy())
+    vertices = np.concatenate(vertices, axis=0)
     vertices[:, :, :2] -= translation[:, None, :2]
     faces = np.asarray(body_model.faces, dtype=np.int32)
-    return vertices, faces, fps
+    return vertices, faces
 
 
-def load_bello_trajectory(path: Path) -> tuple[np.ndarray, float]:
+def interpolate_rotvec(
+    source_times: np.ndarray, values: np.ndarray, target_times: np.ndarray
+) -> np.ndarray:
+    values = np.asarray(values, dtype=np.float64)
+    flat = values.reshape((len(source_times), -1, 3))
+    result = np.empty((len(target_times), flat.shape[1], 3), dtype=np.float32)
+    for joint in range(flat.shape[1]):
+        rotations = Rotation.from_rotvec(flat[:, joint])
+        result[:, joint] = Slerp(source_times, rotations)(target_times).as_rotvec()
+    return result.reshape((len(target_times),) + values.shape[1:])
+
+
+def load_bello_trajectory(path: Path) -> tuple[np.ndarray, float, np.ndarray]:
+    if path.suffix == ".npz":
+        with np.load(path, allow_pickle=False) as motion:
+            trajectory = np.asarray(motion["qpos"], dtype=float)
+            timestamps = np.asarray(motion["timestamp_seconds"], dtype=float)
+            source_timestamps = np.asarray(
+                motion["source_timestamp_seconds"]
+                if "source_timestamp_seconds" in motion.files
+                else timestamps,
+                dtype=float,
+            )
+        if len(timestamps) < 2 or np.any(np.diff(timestamps) <= 0.0):
+            raise ValueError("Bello NPZ timestamps must be increasing")
+        fps = 1.0 / float(np.median(np.diff(timestamps)))
+        return trajectory, fps, source_timestamps
     with path.open("rb") as motion_file:
         motion = pickle.load(motion_file)  # noqa: S301 - trusted local output
     root_position = np.asarray(motion["root_pos"], dtype=float)
@@ -91,7 +141,9 @@ def load_bello_trajectory(path: Path) -> tuple[np.ndarray, float]:
     )
     if not np.all(np.isfinite(trajectory)):
         raise ValueError("Bello trajectory contains non-finite values")
-    return trajectory, float(motion["fps"])
+    fps = float(motion["fps"])
+    source_timestamps = np.arange(len(trajectory), dtype=float) / fps
+    return trajectory, fps, source_timestamps
 
 
 def vertex_normals(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
@@ -176,6 +228,8 @@ def render_comparison(
     width: int,
     height: int,
     azimuth: float,
+    robot_xml: Path,
+    render_fps: float,
 ) -> None:
     if len(human_vertices) != len(bello_trajectory):
         raise ValueError(
@@ -191,7 +245,7 @@ def render_comparison(
     mesh_position = human_model.mesh_pos[0].copy()
     mesh_rotation = Rotation.from_quat(human_model.mesh_quat[0], scalar_first=True)
 
-    bello_model = mujoco.MjModel.from_xml_path(str(ROBOT_XML_DICT["bello"]))
+    bello_model = mujoco.MjModel.from_xml_path(str(robot_xml))
     bello_model.vis.global_.offwidth = width
     bello_model.vis.global_.offheight = height
     bello_model.vis.headlight.ambient[:] = 0.42
@@ -203,18 +257,21 @@ def render_comparison(
     torso_id = bello_model.body("torso_link").id
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if render_fps <= 0.0 or render_fps > fps:
+        raise ValueError("render frame rate must be positive and no greater than motion")
+    frame_stride = max(1, round(fps / render_fps))
     writer = imageio.get_writer(
         output_path,
-        fps=fps,
+        fps=fps / frame_stride,
         codec="libx264",
         quality=9,
         macro_block_size=1,
         ffmpeg_params=["-movflags", "+faststart"],
     )
     try:
-        for frame, (vertices, qpos) in enumerate(
-            zip(human_vertices, bello_trajectory, strict=True)
-        ):
+        for frame in range(0, len(bello_trajectory), frame_stride):
+            vertices = human_vertices[frame]
+            qpos = bello_trajectory[frame]
             human_model.mesh_vert[:] = mesh_rotation.inv().apply(
                 vertices - mesh_position
             )
@@ -247,12 +304,21 @@ def render_comparison(
 
 def main() -> None:
     args = parse_args()
-    human_vertices, human_faces, human_fps = load_human_meshes(
-        args.smplx_motion, args.body_model_dir
+    bello_trajectory, bello_fps, source_times = load_bello_trajectory(
+        args.bello_motion
     )
-    bello_trajectory, bello_fps = load_bello_trajectory(args.bello_motion)
-    if not np.isclose(human_fps, bello_fps):
-        raise ValueError(f"frame-rate mismatch: human={human_fps}, Bello={bello_fps}")
+    if args.max_seconds is not None:
+        if args.max_seconds <= 0.0:
+            raise ValueError("maximum duration must be positive")
+        frame_count = min(
+            len(bello_trajectory), int(np.floor(args.max_seconds * bello_fps)) + 1
+        )
+        bello_trajectory = bello_trajectory[:frame_count]
+        source_times = source_times[:frame_count]
+    human_vertices, human_faces = load_human_meshes(
+        args.smplx_motion, args.body_model_dir, source_times
+    )
+    robot_xml = args.robot_xml or Path(ROBOT_XML_DICT["bello"])
     render_comparison(
         args.video_output,
         human_vertices,
@@ -262,6 +328,8 @@ def main() -> None:
         args.panel_width,
         args.height,
         args.azimuth,
+        robot_xml,
+        args.render_fps,
     )
     print(args.video_output.resolve())
 
