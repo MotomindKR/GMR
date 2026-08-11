@@ -167,6 +167,23 @@ def slerp(rot1, rot2, t):
     
     return R.from_quat(q)
 
+
+def _target_frame_coordinates(num_frames, src_fps, tgt_fps):
+    """Return source-frame coordinates sampled at an exact target rate."""
+    src_fps = float(src_fps)
+    tgt_fps = float(tgt_fps)
+    if num_frames < 1:
+        raise ValueError("SMPL-X motion must contain at least one frame")
+    if not np.isfinite(src_fps) or src_fps <= 0.0:
+        raise ValueError("source frame rate must be finite and positive")
+    if not np.isfinite(tgt_fps) or tgt_fps <= 0.0:
+        raise ValueError("target frame rate must be finite and positive")
+    duration_seconds = (num_frames - 1) / src_fps
+    target_count = int(np.floor(duration_seconds * tgt_fps + 1.0e-8)) + 1
+    coordinates = np.arange(target_count, dtype=np.float64) * src_fps / tgt_fps
+    return np.clip(coordinates, 0.0, num_frames - 1)
+
+
 def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30):
     """
     Must return a dictionary with the following structure:
@@ -176,22 +193,18 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
         ...
     }
     """
-    src_fps = smplx_data["mocap_frame_rate"].item()
-    frame_skip = int(src_fps / tgt_fps)
+    src_fps = float(smplx_data["mocap_frame_rate"].item())
     num_frames = smplx_data["pose_body"].shape[0]
     global_orient = smplx_output.global_orient.squeeze()
     full_body_pose = smplx_output.full_pose.reshape(num_frames, -1, 3)
     joints = smplx_output.joints.detach().numpy().squeeze()
     joint_names = JOINT_NAMES[: len(body_model.parents)]
     parents = body_model.parents
-    
-    if tgt_fps < src_fps:
-        # perform fps alignment with proper interpolation
-        new_num_frames = num_frames // frame_skip
-        
-        # Create time points for interpolation
-        original_time = np.arange(num_frames)
-        target_time = np.linspace(0, num_frames-1, new_num_frames)
+
+    original_time = np.arange(num_frames, dtype=np.float64)
+    target_time = _target_frame_coordinates(num_frames, src_fps, tgt_fps)
+    if not np.array_equal(target_time, original_time):
+        new_num_frames = len(target_time)
         
         # Interpolate global orientation using SLERP
         global_orient_interp = []
@@ -232,9 +245,7 @@ def get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=30
                 joints_interp.append(interp_func(target_time))
         joints = np.stack(joints_interp, axis=1).reshape(new_num_frames, -1, 3)
         
-        aligned_fps = len(global_orient) / num_frames * src_fps
-    else:
-        aligned_fps = tgt_fps
+    aligned_fps = float(tgt_fps)
         
     smplx_data_frames = []
     for curr_frame in range(len(global_orient)):

@@ -7,6 +7,7 @@ import numpy as np
 
 from general_motion_retargeting import GeneralMotionRetargeting
 from general_motion_retargeting.params import IK_CONFIG_DICT, ROBOT_XML_DICT
+from general_motion_retargeting.utils.smpl import _target_frame_coordinates
 
 
 EXPECTED_JOINTS = (
@@ -36,6 +37,17 @@ EXPECTED_JOINTS = (
     "left_elbow_yaw_joint",
     "left_wrist_pitch_joint",
 )
+
+
+def test_smplx_resampling_uses_exact_target_rate() -> None:
+    np.testing.assert_allclose(
+        _target_frame_coordinates(121, 120.0, 50.0),
+        np.arange(51) * 120.0 / 50.0,
+    )
+    np.testing.assert_allclose(
+        _target_frame_coordinates(31, 30.0, 50.0),
+        np.arange(51) * 30.0 / 50.0,
+    )
 
 
 def load_models():
@@ -131,10 +143,12 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
     assert table2["right_ankle_roll_link"][1:3] == [100, [20, 0, 20]]
     assert tuple(table2["left_hip_roll_link"][1:3]) == (20, 0)
     assert tuple(table2["right_hip_roll_link"][1:3]) == (20, 0)
-    assert tuple(table1["left_knee_link"][1:3]) == (0, 50)
-    assert tuple(table1["right_knee_link"][1:3]) == (0, 50)
-    assert tuple(table2["left_knee_link"][1:3]) == (10, 50)
-    assert tuple(table2["right_knee_link"][1:3]) == (10, 50)
+    assert tuple(table1["bello_root"][1:3]) == (100, 10)
+    assert tuple(table2["bello_root"][1:3]) == (100, 5)
+    assert tuple(table1["left_knee_link"][1:3]) == (0, 10)
+    assert tuple(table1["right_knee_link"][1:3]) == (0, 10)
+    assert tuple(table2["left_knee_link"][1:3]) == (10, 5)
+    assert tuple(table2["right_knee_link"][1:3]) == (10, 5)
     expected_knee_offsets = {
         "left_knee_link": np.array(
             [0.500926591475, 0.489716132629, 0.534047445216, 0.473332848696]
