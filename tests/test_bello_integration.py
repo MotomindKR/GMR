@@ -115,6 +115,7 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
     scales = config["human_scale_table"]
     for landmark in ("hip", "knee", "foot", "shoulder", "elbow", "wrist"):
         assert scales[f"left_{landmark}"] == scales[f"right_{landmark}"]
+    assert scales["left_foot"] == 0.86
 
     table1 = config["ik_match_table1"]
     table2 = config["ik_match_table2"]
@@ -128,14 +129,24 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
     expected_arm_weights = {
         "l_upper_arm_link": ((0, 10), (0, 5)),
         "l_elbow_link": ((0, 10), (50, 5)),
-        "l_wrist_link": ((0, 2), (40, 1)),
+        "l_wrist_link": ((0, 2), (40, [1, 1, 0])),
         "r_upper_arm_link": ((0, 10), (0, 5)),
         "r_elbow_link": ((0, 10), (50, 5)),
-        "r_wrist_link": ((0, 2), (40, 1)),
+        "r_wrist_link": ((0, 2), (40, [1, 1, 0])),
     }
     for body_name, (stage1, stage2) in expected_arm_weights.items():
-        assert tuple(table1[body_name][1:3]) == stage1
-        assert tuple(table2[body_name][1:3]) == stage2
+        assert table1[body_name][1:3] == list(stage1)
+        assert table2[body_name][1:3] == list(stage2)
+
+    for left_name, right_name in (
+        ("l_upper_arm_link", "r_upper_arm_link"),
+        ("l_elbow_link", "r_elbow_link"),
+        ("l_wrist_link", "r_wrist_link"),
+    ):
+        assert table1[left_name][1:3] == table1[right_name][1:3]
+        assert table2[left_name][1:3] == table2[right_name][1:3]
+    for wrist_name in ("l_wrist_link", "r_wrist_link"):
+        assert table2[wrist_name][2][2] == 0
 
     assert table1["left_ankle_roll_link"][1:3] == [100, [20, 0, 20]]
     assert table1["right_ankle_roll_link"][1:3] == [100, [20, 0, 20]]
@@ -145,8 +156,8 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
     assert tuple(table2["right_hip_roll_link"][1:3]) == (20, 0)
     assert tuple(table1["bello_root"][1:3]) == (100, 10)
     assert tuple(table2["bello_root"][1:3]) == (100, 5)
-    assert tuple(table1["left_knee_link"][1:3]) == (0, 0)
-    assert tuple(table1["right_knee_link"][1:3]) == (0, 0)
+    assert tuple(table1["left_knee_link"][1:3]) == (15, 0)
+    assert tuple(table1["right_knee_link"][1:3]) == (15, 0)
     assert tuple(table2["left_knee_link"][1:3]) == (50, 0)
     assert tuple(table2["right_knee_link"][1:3]) == (50, 0)
     expected_knee_offsets = {
@@ -172,6 +183,11 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
         "passes_per_frame": 5,
         "max_joint_velocity_radians_per_second": 3.0 * np.pi,
         "max_joint_acceleration_radians_per_second_squared": 200.0,
+        "knee_pole_reference_flexion_radians": np.deg2rad(50.0),
+        "knee_target_minimum_flexion_radians": np.deg2rad(5.0),
+        "knee_pole_sample_minimum_flexion_radians": np.deg2rad(20.0),
+        "knee_pole_sample_minimum_distance_meters": 0.04,
+        "knee_pole_smoothing_frames": 5,
     }
 
     forbidden_solver_keys = {
@@ -240,9 +256,7 @@ def test_bello_ground_clearance_only_raises_penetrating_soles() -> None:
 
     for geom_id in retargeter.ground_clearance_geom_ids:
         sole_height = retargeter.configuration.data.geom_xpos[geom_id, 2] - np.sum(
-            np.abs(
-                retargeter.configuration.data.geom_xmat[geom_id].reshape(3, 3)[2]
-            )
+            np.abs(retargeter.configuration.data.geom_xmat[geom_id].reshape(3, 3)[2])
             * retargeter.model.geom_size[geom_id]
         )
         assert sole_height >= -1e-10
@@ -270,7 +284,7 @@ def test_bello_uses_shared_retargeter() -> None:
         assert f"{side}_hip" in retargeter.rot_offsets1
         assert f"{side}_knee" in retargeter.rot_offsets1
         assert f"{side}_hip" not in retargeter.human_body_to_task1
-        assert f"{side}_knee" not in retargeter.human_body_to_task1
+        assert f"{side}_knee" in retargeter.human_body_to_task1
         assert f"{side}_knee" in retargeter.human_body_to_task2
 
 
