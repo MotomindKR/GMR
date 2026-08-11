@@ -27,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--panel-width", type=int, default=640)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--azimuth", type=float, default=0.0)
+    parser.add_argument("--secondary-azimuth", type=float, default=None)
     parser.add_argument("--robot-xml", type=Path, default=None)
     parser.add_argument("--max-seconds", type=float, default=None)
     parser.add_argument("--render-fps", type=float, default=25.0)
@@ -96,6 +97,7 @@ def load_human_meshes(
             vertices.append(output.vertices.detach().cpu().numpy())
     vertices = np.concatenate(vertices, axis=0)
     vertices[:, :, :2] -= translation[:, None, :2]
+    vertices[:, :, 2] -= np.min(vertices[:, :, 2])
     faces = np.asarray(body_model.faces, dtype=np.int32)
     return vertices, faces
 
@@ -228,6 +230,7 @@ def render_comparison(
     width: int,
     height: int,
     azimuth: float,
+    secondary_azimuth: float | None,
     robot_xml: Path,
     render_fps: float,
 ) -> None:
@@ -286,6 +289,12 @@ def render_comparison(
                 human_data, camera=make_camera(human_lookat, azimuth)
             )
             human_image = human_renderer.render().copy()
+            if secondary_azimuth is not None:
+                human_renderer.update_scene(
+                    human_data,
+                    camera=make_camera(human_lookat, secondary_azimuth),
+                )
+                human_secondary = human_renderer.render().copy()
 
             bello_data.qpos[:] = qpos
             mujoco.mj_forward(bello_model, bello_data)
@@ -295,7 +304,22 @@ def render_comparison(
             )
             add_floor(bello_renderer.scene, qpos[:3])
             bello_image = bello_renderer.render().copy()
-            writer.append_data(np.concatenate((human_image, bello_image), axis=1))
+            primary = np.concatenate((human_image, bello_image), axis=1)
+            if secondary_azimuth is None:
+                writer.append_data(primary)
+                continue
+            bello_renderer.update_scene(
+                bello_data,
+                camera=make_camera(
+                    bello_data.xpos[torso_id], secondary_azimuth
+                ),
+            )
+            add_floor(bello_renderer.scene, qpos[:3])
+            bello_secondary = bello_renderer.render().copy()
+            secondary = np.concatenate(
+                (human_secondary, bello_secondary), axis=1
+            )
+            writer.append_data(np.concatenate((primary, secondary), axis=0))
     finally:
         writer.close()
         human_renderer.close()
@@ -324,10 +348,11 @@ def main() -> None:
         human_vertices,
         human_faces,
         bello_trajectory,
-        human_fps,
+        bello_fps,
         args.panel_width,
         args.height,
         args.azimuth,
+        args.secondary_azimuth,
         robot_xml,
         args.render_fps,
     )
