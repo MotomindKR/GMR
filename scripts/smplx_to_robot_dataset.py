@@ -4,26 +4,23 @@ import pathlib
 import os
 import multiprocessing as mp
 
-import mujoco as mj
-import numpy as np
-from scipy.spatial.transform import Rotation as R
-from tqdm import tqdm
 from natsort import natsorted
 from rich import print
 import torch
 import pickle
 
-from general_motion_retargeting import GeneralMotionRetargeting as GMR
+from general_motion_retargeting import (
+    evaluate_retargeted_motion,
+    retarget_offline_frames,
+)
 from general_motion_retargeting.utils.smpl import load_smplx_file, get_smplx_data_offline_fast
 from general_motion_retargeting.kinematics_model import KinematicsModel
-from general_motion_retargeting import IK_CONFIG_ROOT
 import gc
-import time
 import psutil
 import tracemalloc
 
 
-def check_memory(threshold_gb=30):  # adjust based on your available memory
+def check_memory(threshold_gb=2.0):
     mem = psutil.virtual_memory()
     used_memory_gb = (mem.total - mem.available) / (1024 ** 3)
     available_memory_gb = mem.available / (1024 ** 3)
@@ -36,7 +33,19 @@ def check_memory(threshold_gb=30):  # adjust based on your available memory
 HERE = pathlib.Path(__file__).parent
 
 
-def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_folder, total_files, verbose=False):
+def process_file(
+    smplx_file_path,
+    tgt_file_path,
+    tgt_robot,
+    SMPLX_FOLDER,
+    tgt_folder,
+    task_profile,
+    device,
+    quality_gate,
+    minimum_available_memory_gb,
+    total_files,
+    verbose=False,
+):
     def log_memory(message):
         if verbose:
             process = psutil.Process(os.getpid())
@@ -50,18 +59,12 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
     # Initial checks (with optional logging)
     log_memory("Initial memory usage")
     
-    num_pause = 0
-    while check_memory():
-        print(f"[PAUSE] Paused processing {smplx_file_path} to prevent memory overflow. num_pause: {num_pause}")
-        time.sleep(60*2)
-        num_pause += 1
-        if num_pause > 10:
-            print(f"[ERROR] Memory usage is still high after 10 pauses. Exiting.")
-            return
+    if check_memory(minimum_available_memory_gb):
+        print(f"[SKIP] Insufficient memory for {smplx_file_path}.")
+        return
 
     try:
         smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(smplx_file_path, SMPLX_FOLDER)
-        mocap_frame_rate = smplx_data["mocap_frame_rate"]
         log_memory("After loading SMPL-X data")
     except Exception as e:
         print(f"Error loading {smplx_file_path}: {e}")
@@ -74,23 +77,38 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
     except Exception as e:
         print(f"Error processing {smplx_file_path}: {e}")
         return
+    del body_model, smplx_output
+    gc.collect()
     
     # retarget
-    retargeter = GMR(
+    result = retarget_offline_frames(
+        smplx_frame_data_list,
         src_human="smplx",
         tgt_robot=tgt_robot,
         actual_human_height=actual_human_height,
+        task_profile=task_profile,
     )
-    qpos_list = []
-    for smplx_frame_data in smplx_frame_data_list:
-        qpos = retargeter.retarget(smplx_frame_data)
-        qpos_list.append(qpos.copy())
+    retargeter = result.retargeter
+    qpos_list = result.qpos
 
-    qpos_list = np.array(qpos_list)
+    quality_report = evaluate_retargeted_motion(
+        qpos_list,
+        smplx_frame_data_list,
+        retargeter,
+        aligned_fps,
+    )
+    if quality_gate != "off":
+        quality_path = f"{tgt_file_path}.quality.json"
+        os.makedirs(os.path.dirname(quality_path), exist_ok=True)
+        with open(quality_path, "w") as quality_file:
+            json.dump(quality_report, quality_file, indent=2)
+        if quality_gate == "reject" and not quality_report["quality_gate"]["passed"]:
+            print(f"Rejected by quality gate: {smplx_file_path}")
+            gc.collect()
+            return
 
     log_memory("After retargeting")
     
-    device = "cuda:0"
     kinematics_model = KinematicsModel(retargeter.xml_file, device=device)
 
     try:
@@ -98,7 +116,7 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
     except Exception as e:
         print(f"Error processing {smplx_file_path}: {e}")
         return
-    root_rot = qpos_list[:, 3:7]
+    root_rot = qpos_list[:, 3:7].copy()
     root_rot[:, [0, 1, 2, 3]] = root_rot[:, [1, 2, 3, 0]]
     dof_pos = qpos_list[:, 7:]
     num_frames = root_pos.shape[0]
@@ -138,6 +156,19 @@ def process_file(smplx_file_path, tgt_file_path, tgt_robot, SMPLX_FOLDER, tgt_fo
         "dof_pos": dof_pos,
         "local_body_pos": local_body_pos.detach().cpu().numpy(),
         "link_body_list": body_names,
+        "retarget_metadata": {
+            "task_profile": retargeter.task_profile,
+            "use_velocity_limit": result.use_velocity_limit,
+            "passes_per_frame": result.passes_per_frame,
+            "initial_settle_passes": result.initial_settle_passes,
+            "joint_smoothing_kernel": result.joint_smoothing_kernel.tolist(),
+            "root_orientation_smoothing_kernel": (
+                result.root_orientation_smoothing_kernel.tolist()
+            ),
+            "joint_smoothing_passes": result.joint_smoothing_passes,
+            "minimum_smoothing_alpha": float(result.smoothing_alpha.min()),
+            "quality_gate": quality_report["quality_gate"],
+        },
     }
 
 
@@ -179,7 +210,30 @@ def main():
                         )
     
     parser.add_argument("--override", default=False, action="store_true")
-    parser.add_argument("--num_cpus", default=4, type=int)
+    parser.add_argument("--num_cpus", default=1, type=int)
+    parser.add_argument("--device", default="cpu")
+    parser.add_argument(
+        "--body_model_dir",
+        type=pathlib.Path,
+        default=HERE / ".." / "assets" / "body_models",
+    )
+    parser.add_argument(
+        "--minimum_available_memory_gb",
+        type=float,
+        default=2.0,
+        help="skip a clip instead of risking OOM when less memory is available",
+    )
+    parser.add_argument(
+        "--task_profile",
+        default=None,
+        help="override the robot's named task profile",
+    )
+    parser.add_argument(
+        "--quality_gate",
+        choices=("off", "report", "reject"),
+        default="reject",
+        help="write quality reports and optionally reject failed motions",
+    )
     args = parser.parse_args()
     
     # print the total number of cpus and gpus
@@ -189,7 +243,7 @@ def main():
     src_folder = args.src_folder
     tgt_folder = args.tgt_folder
 
-    SMPLX_FOLDER = HERE / ".." / "assets" / "body_models"
+    SMPLX_FOLDER = args.body_model_dir
     hard_motions_folder = HERE / ".." / "assets" / "hard_motions"
 
     verbose = False
@@ -217,7 +271,19 @@ def main():
                 smplx_file_path = os.path.join(dirpath, filename)
                 tgt_file_path = smplx_file_path.replace(src_folder, tgt_folder).replace(".npz", ".pkl")
                 if not os.path.exists(tgt_file_path) or args.override:
-                    args_list.append((smplx_file_path, tgt_file_path, args.robot, SMPLX_FOLDER, tgt_folder))
+                    args_list.append(
+                        (
+                            smplx_file_path,
+                            tgt_file_path,
+                            args.robot,
+                            SMPLX_FOLDER,
+                            tgt_folder,
+                            args.task_profile,
+                            args.device,
+                            args.quality_gate,
+                            args.minimum_available_memory_gb,
+                        )
+                    )
     print("full args_list:", len(args_list))
     
     # remove hard and infeasible motions
@@ -238,8 +304,13 @@ def main():
     
     total_files = len(args_list)
     print(f"Total number of files to process: {total_files}")
-    with mp.Pool(args.num_cpus) as pool:
-        pool.starmap(process_file, [args + (total_files, verbose) for args in args_list])
+    work = [arguments + (total_files, verbose) for arguments in args_list]
+    if args.num_cpus == 1:
+        for arguments in work:
+            process_file(*arguments)
+    else:
+        with mp.Pool(args.num_cpus) as pool:
+            pool.starmap(process_file, work)
 
     print("Done. Saved to ", tgt_folder)
 

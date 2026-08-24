@@ -26,8 +26,9 @@ class GeneralMotionRetargeting:
         solver: str="daqp", # change from "quadprog" to "daqp".
         damping: float=5e-1, # change from 1e-1 to 1e-2.
         verbose: bool=True,
-        use_velocity_limit: bool=False,
+        use_velocity_limit: bool | None=False,
         robot_xml_path: str | Path | None = None,
+        task_profile: str | None = None,
     ) -> None:
 
         # load the robot model
@@ -68,6 +69,18 @@ class GeneralMotionRetargeting:
         # Load the IK config
         with open(IK_CONFIG_DICT[src_human][tgt_robot]) as f:
             ik_config = json.load(f)
+        self.task_profile = self.apply_task_profile(ik_config, task_profile)
+        self.offline_solver_config = dict(ik_config.get("offline_solver", {}))
+        self.quality_thresholds = dict(
+            ik_config.get("quality_thresholds", {}).get(
+                self.task_profile or "default", {}
+            )
+        )
+        if use_velocity_limit is None:
+            use_velocity_limit = bool(
+                self.offline_solver_config.get("use_velocity_limit", False)
+            )
+        self.use_velocity_limit = use_velocity_limit
         if verbose:
             print("Use IK config: ", IK_CONFIG_DICT[src_human][tgt_robot])
         
@@ -114,6 +127,10 @@ class GeneralMotionRetargeting:
                     f"ground-clearance geom {geom_name!r} must be a box"
                 )
             self.ground_clearance_geom_ids.append(geom_id)
+        self.planar_relative_yaw_config = ik_config.get("planar_relative_yaw_task")
+        self.planar_relative_yaw_task = None
+        self.planar_relative_yaw_reference = None
+        self.planar_relative_yaw_joint_qpos_address = None
         root_body_id = self.model.body(self.robot_root_name).id
         root_joint_id = int(self.model.body_jntadr[root_body_id])
         if self.ground_clearance_geom_ids:
@@ -139,14 +156,114 @@ class GeneralMotionRetargeting:
         self.task_errors2 = {}
 
         self.ik_limits = [mink.ConfigurationLimit(self.model)]
-        if use_velocity_limit:
+        if self.use_velocity_limit:
             actuator_joint_names = self.velocity_limited_joint_names()
             VELOCITY_LIMITS = {k: 3*np.pi for k in actuator_joint_names}
             self.ik_limits.append(mink.VelocityLimit(self.model, VELOCITY_LIMITS)) 
+        self.collision_avoidance_limit = self.make_collision_avoidance_limit(
+            ik_config.get("collision_avoidance")
+        )
+        if self.collision_avoidance_limit is not None:
+            self.ik_limits.append(self.collision_avoidance_limit)
             
         self.setup_retarget_configuration()
         
         self.ground_offset = 0.0
+
+    @staticmethod
+    def apply_task_profile(ik_config, task_profile):
+        profiles = ik_config.get("task_profiles", {})
+        if task_profile is None:
+            task_profile = ik_config.get("default_task_profile")
+        if task_profile is None:
+            return None
+        if task_profile not in profiles:
+            choices = ", ".join(sorted(profiles)) or "none"
+            raise ValueError(
+                f"unknown task profile {task_profile!r}; available profiles: {choices}"
+            )
+        for table_name, table_overrides in profiles[task_profile].items():
+            if table_name not in {"ik_match_table1", "ik_match_table2"}:
+                raise ValueError(
+                    f"task profile {task_profile!r} cannot override {table_name!r}"
+                )
+            table = ik_config[table_name]
+            for frame_name, costs in table_overrides.items():
+                if frame_name not in table:
+                    raise ValueError(
+                        f"task profile {task_profile!r} references unknown frame "
+                        f"{frame_name!r}"
+                    )
+                unknown = set(costs) - {"position_cost", "orientation_cost"}
+                if unknown:
+                    raise ValueError(
+                        f"unsupported task-cost overrides for {frame_name!r}: "
+                        + ", ".join(sorted(unknown))
+                    )
+                if "position_cost" in costs:
+                    table[frame_name][1] = costs["position_cost"]
+                if "orientation_cost" in costs:
+                    table[frame_name][2] = costs["orientation_cost"]
+        return task_profile
+
+    def make_collision_avoidance_limit(self, config):
+        if not config or not config.get("enabled", False):
+            return None
+        collision_geoms = [
+            self.model.geom(geom_id).name
+            for geom_id in range(self.model.ngeom)
+            if self.model.geom_contype[geom_id]
+            and self.model.geom_conaffinity[geom_id]
+            and self.model.geom(geom_id).name
+        ]
+        if not collision_geoms:
+            raise ValueError("collision avoidance found no named collision geoms")
+        if config.get("all_collision_geoms", False):
+            geom_pairs = [(collision_geoms, collision_geoms)]
+        else:
+            geom_pairs = []
+            for pair in config.get("geom_pairs", []):
+                if len(pair) != 2:
+                    raise ValueError("each collision geom pair must contain two groups")
+                resolved_pair = []
+                for group in pair:
+                    resolved_group = []
+                    for selector in group:
+                        if selector.startswith("body:"):
+                            body_id = self.model.body(selector.removeprefix("body:")).id
+                            resolved_group.extend(
+                                self.model.geom(geom_id).name
+                                for geom_id in range(self.model.ngeom)
+                                if self.model.geom_bodyid[geom_id] == body_id
+                                and self.model.geom_contype[geom_id]
+                                and self.model.geom_conaffinity[geom_id]
+                                and self.model.geom(geom_id).name
+                            )
+                        else:
+                            self.model.geom(selector)
+                            resolved_group.append(selector)
+                    if not resolved_group:
+                        raise ValueError(
+                            f"collision selector group {group!r} resolved no geoms"
+                        )
+                    resolved_pair.append(resolved_group)
+                geom_pairs.append(tuple(resolved_pair))
+            if not geom_pairs:
+                raise ValueError(
+                    "collision avoidance requires all_collision_geoms or geom_pairs"
+                )
+        return mink.CollisionAvoidanceLimit(
+            self.model,
+            geom_pairs,
+            gain=float(config.get("gain", 0.85)),
+            minimum_distance_from_collisions=float(
+                config.get("minimum_distance", 0.005)
+            ),
+            collision_detection_distance=float(
+                config.get("detection_distance", 0.01)
+            ),
+            bound_relaxation=float(config.get("bound_relaxation", 0.0)),
+        )
 
     def velocity_limited_joint_names(self):
         names = []
@@ -215,6 +332,50 @@ class GeneralMotionRetargeting:
                 self.tasks2.append(task)
                 self.task_errors2[task] = []
 
+        if self.planar_relative_yaw_config is not None:
+            config = self.planar_relative_yaw_config
+            required_keys = {
+                "robot_frame_name",
+                "robot_root_name",
+                "robot_joint_name",
+                "human_frame_landmarks",
+                "human_root_landmarks",
+                "orientation_cost",
+            }
+            missing_keys = required_keys - set(config)
+            if missing_keys:
+                raise ValueError(
+                    "planar relative-yaw task is missing keys: "
+                    + ", ".join(sorted(missing_keys))
+                )
+            for key in ("human_frame_landmarks", "human_root_landmarks"):
+                landmarks = config[key]
+                if len(landmarks) != 2 or any(
+                    landmark not in self.human_scale_table for landmark in landmarks
+                ):
+                    raise ValueError(f"{key} must contain two scaled human landmarks")
+            joint = self.model.joint(config["robot_joint_name"])
+            if joint.type != mj.mjtJoint.mjJNT_HINGE:
+                raise ValueError("planar relative-yaw task requires a hinge joint")
+            orientation_cost = float(config["orientation_cost"])
+            if not np.isfinite(orientation_cost) or orientation_cost <= 0.0:
+                raise ValueError(
+                    "planar relative-yaw orientation cost must be positive"
+                )
+            self.planar_relative_yaw_task = mink.RelativeFrameTask(
+                frame_name=config["robot_frame_name"],
+                frame_type="body",
+                root_name=config["robot_root_name"],
+                root_type="body",
+                position_cost=0.0,
+                orientation_cost=[0.0, 0.0, orientation_cost],
+                lm_damping=1,
+            )
+            self.planar_relative_yaw_reference = mink.Configuration(self.model)
+            self.planar_relative_yaw_joint_qpos_address = int(joint.qposadr[0])
+            self.tasks2.append(self.planar_relative_yaw_task)
+            self.task_errors2[self.planar_relative_yaw_task] = []
+
   
     def update_targets(self, human_data, offset_to_ground=False):
         # scale human data in local frame
@@ -238,6 +399,7 @@ class GeneralMotionRetargeting:
                 task = self.human_body_to_task2[body_name]
                 pos, rot = human_data[body_name]
                 task.set_target(mink.SE3.from_rotation_and_translation(mink.SO3(rot), pos))
+            self.update_planar_relative_yaw_target(human_data)
             
             
     def retarget(self, human_data, offset_to_ground=False):
@@ -305,6 +467,41 @@ class GeneralMotionRetargeting:
 
         self.enforce_ground_clearance()
         return self.configuration.data.qpos.copy()
+
+    def update_planar_relative_yaw_target(self, human_data):
+        if self.planar_relative_yaw_task is None:
+            return
+        config = self.planar_relative_yaw_config
+        frame_left, frame_right = config["human_frame_landmarks"]
+        root_left, root_right = config["human_root_landmarks"]
+        frame_axis = human_data[frame_right][0] - human_data[frame_left][0]
+        root_axis = human_data[root_right][0] - human_data[root_left][0]
+        frame_axis = np.asarray(frame_axis[:2], dtype=float)
+        root_axis = np.asarray(root_axis[:2], dtype=float)
+        frame_norm = np.linalg.norm(frame_axis)
+        root_norm = np.linalg.norm(root_axis)
+        if frame_norm < 1e-8 or root_norm < 1e-8:
+            raise ValueError("planar relative-yaw landmarks must span a direction")
+        frame_axis /= frame_norm
+        root_axis /= root_norm
+        cross = root_axis[0] * frame_axis[1] - root_axis[1] * frame_axis[0]
+        target_yaw = np.arctan2(cross, np.dot(root_axis, frame_axis))
+        target_yaw *= float(config.get("scale", 1.0))
+
+        joint = self.model.joint(config["robot_joint_name"])
+        if joint.limited:
+            target_yaw = np.clip(target_yaw, joint.range[0], joint.range[1])
+        qpos = self.model.qpos0.copy()
+        qpos[self.planar_relative_yaw_joint_qpos_address] = target_yaw
+        self.planar_relative_yaw_reference.update(qpos)
+        self.planar_relative_yaw_task.set_target(
+            self.planar_relative_yaw_reference.get_transform(
+                config["robot_frame_name"],
+                "body",
+                config["robot_root_name"],
+                "body",
+            )
+        )
 
     def enforce_ground_clearance(self):
         if not self.ground_clearance_geom_ids:
