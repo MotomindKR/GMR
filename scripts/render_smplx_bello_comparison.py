@@ -540,7 +540,8 @@ def annotate_comparison(
         legend = "GREEN = KNEE BEND DIRECTION     MAGENTA = TOE HEADING"
         subtitle = f"{motion_label}  |  arrows are diagnostic overlays only"
     else:
-        legend = "SYNCHRONIZED HUMAN / BELLO / G1 RETARGETING COMPARISON"
+        models = "HUMAN / BELLO / G1" if include_g1 else "HUMAN / BELLO"
+        legend = f"SYNCHRONIZED {models} RETARGETING COMPARISON"
         subtitle = motion_label
     draw.text((20, 12), legend, fill=(245, 247, 250), font=title_font)
     draw.text((20, 49), subtitle, fill=(255, 205, 93), font=label_font)
