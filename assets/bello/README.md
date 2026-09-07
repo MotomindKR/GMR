@@ -69,6 +69,15 @@ distal `+X` on the left and `-X` on the right map to Bello endpoint `-Z`.
 The elbow-yaw ranges are mirrored anatomically: left is -120 to +30 degrees and
 right is -30 to +120 degrees. This keeps forearm roll reachable on both sides.
 
+Bello Mini's `live_upper_body` profile uses the derived shoulder, elbow, and
+palm frames as orientation targets for its complete seven-DoF serial arms. Arm
+position costs are disabled in this profile: the robot's fixed link geometry
+determines elbow and wrist positions, while independently offsetting live
+landmarks can otherwise ask a rigid chain to assume impossible segment lengths.
+The wrist orientation cost is `10`, so the palm frame directly controls wrist
+yaw, pitch, and roll. The offline `universal` profile retains its calibrated
+position-and-orientation targets for native SMPL-X clips.
+
 Bello has waist yaw but no waist pitch or roll. Root translation and heading
 therefore follow the human pelvis, while root pitch and roll follow `spine3`
 through the rigid torso frame. This split prevents seated motions from applying
