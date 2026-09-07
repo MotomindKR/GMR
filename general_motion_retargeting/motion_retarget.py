@@ -70,6 +70,11 @@ class GeneralMotionRetargeting:
         with open(IK_CONFIG_DICT[src_human][tgt_robot]) as f:
             ik_config = json.load(f)
         self.task_profile = self.apply_task_profile(ik_config, task_profile)
+        self.profile_posture_costs = dict(
+            ik_config.get("task_profiles", {})
+            .get(self.task_profile, {})
+            .get("posture_costs", {})
+        )
         self.offline_solver_config = dict(ik_config.get("offline_solver", {}))
         self.quality_thresholds = dict(
             ik_config.get("quality_thresholds", {}).get(
@@ -183,6 +188,12 @@ class GeneralMotionRetargeting:
                 f"unknown task profile {task_profile!r}; available profiles: {choices}"
             )
         for table_name, table_overrides in profiles[task_profile].items():
+            if table_name == "posture_costs":
+                if not isinstance(table_overrides, dict):
+                    raise ValueError(
+                        f"task profile {task_profile!r} posture_costs must be a map"
+                    )
+                continue
             if table_name not in {"ik_match_table1", "ik_match_table2"}:
                 raise ValueError(
                     f"task profile {task_profile!r} cannot override {table_name!r}"
@@ -375,6 +386,39 @@ class GeneralMotionRetargeting:
             self.planar_relative_yaw_joint_qpos_address = int(joint.qposadr[0])
             self.tasks2.append(self.planar_relative_yaw_task)
             self.task_errors2[self.planar_relative_yaw_task] = []
+
+        self.profile_posture_task = self.make_profile_posture_task(
+            self.profile_posture_costs
+        )
+        if self.profile_posture_task is not None:
+            self.tasks2.append(self.profile_posture_task)
+            self.task_errors2[self.profile_posture_task] = []
+
+    def make_profile_posture_task(self, posture_costs):
+        if not posture_costs:
+            return None
+        costs = np.zeros(self.model.nv)
+        for joint_name, cost in posture_costs.items():
+            if not isinstance(joint_name, str):
+                raise ValueError("profile posture-cost joint names must be strings")
+            cost = float(cost)
+            if not np.isfinite(cost) or cost <= 0.0:
+                raise ValueError(
+                    f"profile posture cost for {joint_name!r} must be positive and finite"
+                )
+            joint = self.model.joint(joint_name)
+            joint_type = int(joint.type[0])
+            if joint_type not in {
+                mj.mjtJoint.mjJNT_HINGE,
+                mj.mjtJoint.mjJNT_SLIDE,
+            }:
+                raise ValueError(
+                    f"profile posture cost requires a scalar joint, got {joint_name!r}"
+                )
+            costs[int(joint.dofadr[0])] = cost
+        task = mink.PostureTask(self.model, cost=costs)
+        task.set_target(self.model.qpos0)
+        return task
 
   
     def update_targets(self, human_data, offset_to_ground=False):

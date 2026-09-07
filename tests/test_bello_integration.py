@@ -264,7 +264,8 @@ def test_bello_config_is_symmetric_and_references_model() -> None:
 
     profiles = config["task_profiles"]
     assert config["default_task_profile"] == "universal"
-    assert profiles == {"universal": {}}
+    assert set(profiles) == {"universal", "live_upper_body"}
+    assert profiles["universal"] == {}
     for prefix in ("l", "r"):
         table = config["ik_match_table2"]
         assert table[f"{prefix}_upper_arm_link"][2] == 0
@@ -471,6 +472,11 @@ def test_universal_profile_uses_one_arm_task_balance() -> None:
         np.testing.assert_allclose(elbow_task.cost, [30, 30, 30, 0, 0, 0])
         wrist_task = retargeter.human_body_to_task2[f"{side}_wrist"]
         np.testing.assert_allclose(wrist_task.cost, [50, 50, 50, 30, 30, 30])
+    assert retargeter.profile_posture_task is None
+    assert not any(
+        isinstance(task, mink.PostureTask)
+        for task in (*retargeter.tasks1, *retargeter.tasks2)
+    )
     assert retargeter.offline_solver_config["initial_settle_passes"] == 20
     np.testing.assert_allclose(
         retargeter.offline_solver_config["joint_smoothing_kernel"],
@@ -478,6 +484,126 @@ def test_universal_profile_uses_one_arm_task_balance() -> None:
     )
     assert retargeter.offline_solver_config["joint_smoothing_passes"] == 3
     assert retargeter.offline_solver_config["maximum_collision_penetration"] == 0.03
+
+
+def test_live_upper_body_profile_uses_only_observable_arm_positions() -> None:
+    retargeter = GeneralMotionRetargeting(
+        src_human="smplx",
+        tgt_robot="bello",
+        actual_human_height=1.66,
+        verbose=False,
+        task_profile="live_upper_body",
+    )
+    for side in ("left", "right"):
+        assert f"{side}_shoulder" not in retargeter.human_body_to_task1
+        assert f"{side}_shoulder" not in retargeter.human_body_to_task2
+        elbow_task = retargeter.human_body_to_task2[f"{side}_elbow"]
+        np.testing.assert_allclose(elbow_task.cost, [30, 30, 30, 0, 0, 0])
+        wrist_task = retargeter.human_body_to_task2[f"{side}_wrist"]
+        np.testing.assert_allclose(wrist_task.cost, [50, 50, 50, 0, 0, 0])
+    assert not any(isinstance(task, mink.PostureTask) for task in retargeter.tasks1)
+    posture_tasks = [
+        task for task in retargeter.tasks2 if isinstance(task, mink.PostureTask)
+    ]
+    assert posture_tasks == [retargeter.profile_posture_task]
+    np.testing.assert_array_equal(
+        retargeter.profile_posture_task.target_q, retargeter.model.qpos0
+    )
+    expected_cost = np.zeros(retargeter.model.nv)
+    for side in ("left", "right"):
+        for joint_kind in ("shoulder_yaw", "elbow_yaw"):
+            joint = retargeter.model.joint(f"{side}_{joint_kind}_joint")
+            expected_cost[joint.dofadr[0]] = 10
+    np.testing.assert_array_equal(retargeter.profile_posture_task.cost, expected_cost)
+
+
+def test_live_upper_body_static_reachable_pose_does_not_accumulate_axial_twist() -> None:
+    retargeter = GeneralMotionRetargeting(
+        src_human="smplx",
+        tgt_robot="bello",
+        actual_human_height=1.66,
+        verbose=False,
+        use_velocity_limit=None,
+        task_profile="live_upper_body",
+    )
+    assert retargeter.use_velocity_limit
+    retargeter.max_iter = 0
+
+    target_qpos = retargeter.model.qpos0.copy()
+    for side, shoulder_pitch in (("left", -0.35), ("right", 0.35)):
+        target_qpos[
+            retargeter.model.joint(f"{side}_shoulder_pitch_joint").qposadr[0]
+        ] = shoulder_pitch
+        target_qpos[
+            retargeter.model.joint(f"{side}_shoulder_roll_joint").qposadr[0]
+        ] = 0.25
+        target_qpos[
+            retargeter.model.joint(f"{side}_elbow_pitch_joint").qposadr[0]
+        ] = 0.75
+    retargeter.configuration.update(target_qpos)
+    retargeter.enforce_ground_clearance()
+
+    scaled_positions = {}
+    source_orientations = {}
+    for frame_name, entry in retargeter.ik_match_table1.items():
+        source_name = entry[0]
+        body_id = retargeter.model.body(frame_name).id
+        frame_rotation = Rotation.from_matrix(
+            retargeter.configuration.data.xmat[body_id].reshape(3, 3)
+        )
+        scaled_positions[source_name] = (
+            retargeter.configuration.data.xpos[body_id]
+            - frame_rotation.apply(retargeter.pos_offsets1[source_name])
+        )
+        source_orientations[source_name] = (
+            frame_rotation * retargeter.rot_offsets1[source_name].inv()
+        ).as_quat(scalar_first=True)
+
+    root_name = retargeter.human_root_name
+    source_root = (
+        scaled_positions[root_name] / retargeter.human_scale_table[root_name]
+    )
+    source_positions = {root_name: source_root}
+    for source_name, scaled_position in scaled_positions.items():
+        if source_name == root_name:
+            continue
+        source_positions[source_name] = source_root + (
+            scaled_position - scaled_positions[root_name]
+        ) / retargeter.human_scale_table[source_name]
+
+    def standing_frame():
+        return {
+            source_name: [
+                source_positions[source_name].copy(),
+                source_orientations[source_name].copy(),
+            ]
+            for source_name in source_positions
+        }
+
+    retargeter.configuration.update(retargeter.model.qpos0)
+    maximum_axial_twist = 0.0
+    for _ in range(500):
+        qpos = retargeter.retarget(standing_frame())
+        for side in ("left", "right"):
+            for joint_kind in ("shoulder_yaw", "elbow_yaw"):
+                joint = retargeter.model.joint(f"{side}_{joint_kind}_joint")
+                qpos_address = int(joint.qposadr[0])
+                maximum_axial_twist = max(
+                    maximum_axial_twist,
+                    abs(qpos[qpos_address] - retargeter.model.qpos0[qpos_address]),
+                )
+
+    assert np.all(np.isfinite(qpos))
+    assert maximum_axial_twist < 0.1
+    for side in ("left", "right"):
+        elbow_error = retargeter.human_body_to_task2[
+            f"{side}_elbow"
+        ].compute_error(retargeter.configuration)
+        wrist_error = retargeter.human_body_to_task2[
+            f"{side}_wrist"
+        ].compute_error(retargeter.configuration)
+        assert np.linalg.norm(elbow_error[:3]) < 0.04
+        assert np.linalg.norm(wrist_error[:3]) < 0.015
 
 
 def test_joint_limit_diagnostics_identify_bound_and_range() -> None:

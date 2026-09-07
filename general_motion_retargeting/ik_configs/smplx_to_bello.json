@@ -73,7 +73,41 @@
     },
     "default_task_profile": "universal",
     "task_profiles": {
-        "universal": {}
+        "universal": {},
+        "live_upper_body": {
+            "ik_match_table1": {
+                "l_upper_arm_link": {
+                    "orientation_cost": 0
+                },
+                "r_upper_arm_link": {
+                    "orientation_cost": 0
+                }
+            },
+            "ik_match_table2": {
+                "l_elbow_link": {
+                    "position_cost": 30,
+                    "orientation_cost": 0
+                },
+                "l_end_effector_sphere_link": {
+                    "position_cost": 50,
+                    "orientation_cost": 0
+                },
+                "r_elbow_link": {
+                    "position_cost": 30,
+                    "orientation_cost": 0
+                },
+                "r_end_effector_sphere_link": {
+                    "position_cost": 50,
+                    "orientation_cost": 0
+                }
+            },
+            "posture_costs": {
+                "left_shoulder_yaw_joint": 10,
+                "left_elbow_yaw_joint": 10,
+                "right_shoulder_yaw_joint": 10,
+                "right_elbow_yaw_joint": 10
+            }
+        }
     },
     "quality_thresholds": {
         "universal": {

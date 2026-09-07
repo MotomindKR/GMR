@@ -57,6 +57,13 @@ branch. Stage two removes that redundant orientation task, tracks elbow position
 at cost `30`, and tracks wrist position/orientation at `50` and
 `[30, 30, 30]`. Palm roll about the distal tool axis therefore cannot drift,
 while the elbow target still discourages dynamic branch changes.
+The `live_upper_body` profile is for real-time landmark sources whose bone-axis
+rotations do not observe axial twist. It removes the upper-arm orientation task
+in stage one and terminal-hand orientation in stage two, while preserving the
+elbow and wrist position costs. A stage-two nominal-posture cost of `10` on each
+shoulder-yaw and elbow-yaw joint resolves the remaining position-only null
+space without materially competing with the position costs of `30` and `50`.
+The default `universal` profile remains the offline SMPL-X contract.
 The human wrist's local `-Y` palm normal maps to Bello endpoint `+X`; human
 distal `+X` on the left and `-X` on the right map to Bello endpoint `-Z`.
 The elbow-yaw ranges are mirrored anatomically: left is -120 to +30 degrees and
