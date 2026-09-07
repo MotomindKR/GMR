@@ -75,7 +75,9 @@ class GeneralMotionRetargeting:
             .get(self.task_profile, {})
             .get("posture_costs", {})
         )
-        self.offline_solver_config = dict(ik_config.get("offline_solver", {}))
+        self.offline_solver_config = self.solver_config_for_profile(
+            ik_config, self.task_profile
+        )
         self.quality_thresholds = dict(
             ik_config.get("quality_thresholds", {}).get(
                 self.task_profile or "default", {}
@@ -188,6 +190,8 @@ class GeneralMotionRetargeting:
                 f"unknown task profile {task_profile!r}; available profiles: {choices}"
             )
         for table_name, table_overrides in profiles[task_profile].items():
+            if table_name == "solver":
+                continue
             if table_name == "posture_costs":
                 if not isinstance(table_overrides, dict):
                     raise ValueError(
@@ -216,6 +220,39 @@ class GeneralMotionRetargeting:
                 if "orientation_cost" in costs:
                     table[frame_name][2] = costs["orientation_cost"]
         return task_profile
+
+    @staticmethod
+    def solver_config_for_profile(ik_config, task_profile):
+        solver_config = dict(ik_config.get("offline_solver", {}))
+        if task_profile is None:
+            return solver_config
+        overrides = (
+            ik_config.get("task_profiles", {})
+            .get(task_profile, {})
+            .get("solver", {})
+        )
+        if not isinstance(overrides, dict):
+            raise ValueError(
+                f"task profile {task_profile!r} solver settings must be a map"
+            )
+        unknown = set(overrides) - {"passes_per_frame"}
+        if unknown:
+            raise ValueError(
+                f"unsupported task-profile solver settings for {task_profile!r}: "
+                + ", ".join(sorted(unknown))
+            )
+        passes_per_frame = overrides.get("passes_per_frame")
+        if passes_per_frame is not None and (
+            isinstance(passes_per_frame, bool)
+            or not isinstance(passes_per_frame, int)
+            or passes_per_frame < 1
+        ):
+            raise ValueError(
+                f"task profile {task_profile!r} passes_per_frame must be a "
+                "positive integer"
+            )
+        solver_config.update(overrides)
+        return solver_config
 
     def make_collision_avoidance_limit(self, config):
         if not config or not config.get("enabled", False):

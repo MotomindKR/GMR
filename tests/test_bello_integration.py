@@ -4,6 +4,7 @@ from pathlib import Path
 import mink
 import mujoco
 import numpy as np
+import pytest
 from scipy.spatial.transform import Rotation
 
 from general_motion_retargeting import GeneralMotionRetargeting
@@ -456,6 +457,31 @@ def test_velocity_limit_is_an_explicit_shared_solver_option() -> None:
     assert isinstance(retargeter.ik_limits[0], mink.ConfigurationLimit)
     assert isinstance(retargeter.ik_limits[1], mink.VelocityLimit)
     assert isinstance(retargeter.ik_limits[2], mink.CollisionAvoidanceLimit)
+
+
+def test_task_profile_solver_passes_are_scoped_and_validated() -> None:
+    config = {
+        "offline_solver": {"passes_per_frame": 1, "initial_settle_passes": 20},
+        "task_profiles": {
+            "universal": {},
+            "live_upper_body": {"solver": {"passes_per_frame": 3}},
+        },
+    }
+
+    assert GeneralMotionRetargeting.solver_config_for_profile(
+        config, "universal"
+    ) == {"passes_per_frame": 1, "initial_settle_passes": 20}
+    assert GeneralMotionRetargeting.solver_config_for_profile(
+        config, "live_upper_body"
+    ) == {"passes_per_frame": 3, "initial_settle_passes": 20}
+
+    config["task_profiles"]["live_upper_body"]["solver"] = {
+        "passes_per_frame": 0
+    }
+    with pytest.raises(ValueError, match="passes_per_frame"):
+        GeneralMotionRetargeting.solver_config_for_profile(
+            config, "live_upper_body"
+        )
 
 
 def test_universal_profile_uses_one_arm_task_balance() -> None:

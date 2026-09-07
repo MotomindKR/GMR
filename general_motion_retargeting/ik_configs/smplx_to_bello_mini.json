@@ -152,6 +152,9 @@
             }
         },
         "live_upper_body": {
+            "solver": {
+                "passes_per_frame": 3
+            },
             "ik_match_table2": {
                 "left_upper_arm_link": {
                     "position_cost": 0
