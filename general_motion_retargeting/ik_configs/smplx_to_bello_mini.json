@@ -152,38 +152,20 @@
             }
         },
         "live_upper_body": {
-            "ik_match_table1": {
-                "left_upper_arm_link": {
-                    "orientation_cost": 0
-                },
-                "right_upper_arm_link": {
-                    "orientation_cost": 0
-                }
-            },
             "ik_match_table2": {
-                "left_upper_arm_link": {
-                    "position_cost": 10,
-                    "orientation_cost": 0
-                },
                 "left_elbow_link": {
-                    "position_cost": 30,
-                    "orientation_cost": 0
+                    "position_cost": 30
                 },
                 "left_wrist_roll_link": {
                     "position_cost": 50,
-                    "orientation_cost": 0
-                },
-                "right_upper_arm_link": {
-                    "position_cost": 10,
-                    "orientation_cost": 0
+                    "orientation_cost": 10
                 },
                 "right_elbow_link": {
-                    "position_cost": 30,
-                    "orientation_cost": 0
+                    "position_cost": 30
                 },
                 "right_wrist_roll_link": {
                     "position_cost": 50,
-                    "orientation_cost": 0
+                    "orientation_cost": 10
                 }
             },
             "posture_costs": {
