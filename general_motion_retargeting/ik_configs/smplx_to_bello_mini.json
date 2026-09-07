@@ -150,6 +150,50 @@
                     "orientation_cost": 10
                 }
             }
+        },
+        "live_upper_body": {
+            "ik_match_table1": {
+                "left_upper_arm_link": {
+                    "orientation_cost": 0
+                },
+                "right_upper_arm_link": {
+                    "orientation_cost": 0
+                }
+            },
+            "ik_match_table2": {
+                "left_upper_arm_link": {
+                    "position_cost": 10,
+                    "orientation_cost": 0
+                },
+                "left_elbow_link": {
+                    "position_cost": 30,
+                    "orientation_cost": 0
+                },
+                "left_wrist_roll_link": {
+                    "position_cost": 50,
+                    "orientation_cost": 0
+                },
+                "right_upper_arm_link": {
+                    "position_cost": 10,
+                    "orientation_cost": 0
+                },
+                "right_elbow_link": {
+                    "position_cost": 30,
+                    "orientation_cost": 0
+                },
+                "right_wrist_roll_link": {
+                    "position_cost": 50,
+                    "orientation_cost": 0
+                }
+            },
+            "posture_costs": {
+                "left_shoulder_yaw_joint": 10,
+                "left_wrist_yaw_joint": 10,
+                "left_wrist_roll_joint": 10,
+                "right_shoulder_yaw_joint": 10,
+                "right_wrist_yaw_joint": 10,
+                "right_wrist_roll_joint": 10
+            }
         }
     },
     "quality_thresholds": {
