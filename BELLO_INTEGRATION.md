@@ -7,7 +7,10 @@ removed, not relocated into the solver's caller.
 
 The canonical Mini default for this project is
 `general_motion_retargeting/ik_configs/smplx_to_bello_mini.json`.
-There are no alternate live/offline profiles. Full-size Bello retains its
+Live PICO input instead uses `xrobot_to_bello_mini.json` (or
+`xrobot_to_bello.json`), with raw XRoboToolkit poses rather than reconstructed
+SMPL-X. These are source-format profiles, not selectable tuning variants.
+The SMPL-X profiles remain for offline datasets and FastSAM. Full-size Bello retains its
 standard-field JSON, without its former fork-only settings. Its four inactive
 stage-1 elbow/wrist tasks now use their existing stage-2 weights, as approved,
 so upstream can construct their target offsets. This is compatibility
@@ -33,6 +36,22 @@ in this integration. Do not execute unchecked kinematic output on hardware.
 
 See [validation](BELLO_VALIDATION.md) for known failures. The default is selected
 for project use; that is not approval for unrestricted physical execution.
+
+## Direct XRoboToolkit profile
+
+The initial live arm costs follow upstream `xrobot_to_g1.json`: zero shoulder,
+elbow and wrist position cost, orientation cost 10 in both stages. Existing
+Bello root/leg/torso costs, scales, anatomical offsets and robot geometry are
+retained. Source-frame rotation offsets are transferred as
+`Q_xrobot_to_G1 * inverse(Q_smplx_to_G1) * Q_smplx_to_Bello`.
+For hip source frames the common pelvis frame is used because the two G1
+profiles target different hip links. This is a configuration-only initial
+frame transfer, not an operator-specific calibration or evidence of improved
+high-five tracking. Limb proportions and residual wrist orientation need a
+live comparison; hardware validation was deferred by the operator.
+
+No GMR Python or upstream examples are changed. Bello registers these JSON
+paths through upstream's existing config registry in its external caller.
 
 ## Integrity
 

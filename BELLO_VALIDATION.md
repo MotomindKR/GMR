@@ -1,7 +1,9 @@
-# Mini default: validation handoff
+# Mini SMPL-X default: validation handoff
 
 Selected 2026-09-15: `body-arm-half-w40` with the yaw-stability correction below,
-now the sole active Mini JSON.
+now the default Mini SMPL-X JSON. These results do not validate the new
+`xrobot_to_bello_mini.json` raw-PICO profile. Its live high-five trial is deferred;
+see `BELLO_INTEGRATION.md` for the initial source-frame transfer.
 Configuration SHA-256:
 `6b26709170ce9469207ce7f46bea3cd801988ed13d0cc1536e5ba5b9cd79516f`.
 Upstream GMR: `bb1bbe40774794fceb2a7c579a3464a28e68c844`.
