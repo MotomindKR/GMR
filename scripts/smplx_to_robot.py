@@ -5,7 +5,8 @@ import time
 
 import numpy as np
 
-from general_motion_retargeting import RobotMotionViewer, retarget_offline_frames
+from general_motion_retargeting import GeneralMotionRetargeting as GMR
+from general_motion_retargeting import RobotMotionViewer
 from general_motion_retargeting.utils.smpl import load_smplx_file, get_smplx_data_offline_fast
 
 from rich import print
@@ -29,7 +30,7 @@ if __name__ == "__main__":
     
     parser.add_argument(
         "--robot",
-        choices=["bello", "unitree_g1", "unitree_g1_with_hands", "unitree_h1", "unitree_h1_2",
+        choices=["unitree_g1", "unitree_g1_with_hands", "unitree_h1", "unitree_h1_2",
                  "booster_t1", "booster_t1_29dof","stanford_toddy", "fourier_n1", 
                 "engineai_pm01", "kuavo_s45", "hightorque_hi", "galaxea_r1pro", "berkeley_humanoid_lite", "booster_k1",
                 "pnd_adam_lite", "openloong", "tienkung", "fourier_gr3"],
@@ -62,23 +63,16 @@ if __name__ == "__main__":
         action="store_true",
         help="Limit the rate of the retargeted robot motion to keep the same as the human motion.",
     )
-    parser.add_argument(
-        "--task_profile",
-        default=None,
-        help="override the robot's named task profile",
-    )
-    parser.add_argument(
-        "--body_model_dir",
-        type=pathlib.Path,
-        default=HERE / ".." / "assets" / "body_models",
-    )
 
     args = parser.parse_args()
 
 
+    SMPLX_FOLDER = HERE / ".." / "assets" / "body_models"
+    
+    
     # Load SMPLX trajectory
     smplx_data, body_model, smplx_output, actual_human_height = load_smplx_file(
-        args.smplx_file, args.body_model_dir
+        args.smplx_file, SMPLX_FOLDER
     )
     
     # align fps
@@ -86,15 +80,12 @@ if __name__ == "__main__":
     smplx_data_frames, aligned_fps = get_smplx_data_offline_fast(smplx_data, body_model, smplx_output, tgt_fps=tgt_fps)
     
    
-    result = retarget_offline_frames(
-        smplx_data_frames,
+    # Initialize the retargeting system
+    retarget = GMR(
         actual_human_height=actual_human_height,
         src_human="smplx",
         tgt_robot=args.robot,
-        task_profile=args.task_profile,
     )
-    retarget = result.retargeter
-    qpos_trajectory = result.qpos
     
     robot_motion_viewer = RobotMotionViewer(robot_type=args.robot,
                                             motion_fps=aligned_fps,
@@ -103,6 +94,7 @@ if __name__ == "__main__":
                                             video_path=f"videos/{args.robot}_{args.smplx_file.split('/')[-1].split('.')[0]}.mp4",)
     
 
+    curr_frame = 0
     # FPS measurement variables
     fps_counter = 0
     fps_start_time = time.time()
@@ -118,9 +110,12 @@ if __name__ == "__main__":
     i = 0
 
     while True:
-        if not args.loop and i >= len(smplx_data_frames):
-            break
-        frame_index = i % len(smplx_data_frames)
+        if args.loop:
+            i = (i + 1) % len(smplx_data_frames)
+        else:
+            i += 1
+            if i >= len(smplx_data_frames):
+                break
         
         # FPS measurement
         fps_counter += 1
@@ -132,15 +127,18 @@ if __name__ == "__main__":
             fps_start_time = current_time
         
         # Update task targets.
-        smplx_data = smplx_data_frames[frame_index]
-        qpos = qpos_trajectory[frame_index]
+        smplx_data = smplx_data_frames[i]
+
+        # retarget
+        qpos = retarget.retarget(smplx_data)
 
         # visualize
         robot_motion_viewer.step(
             root_pos=qpos[:3],
             root_rot=qpos[3:7],
             dof_pos=qpos[7:],
-            human_motion_data=smplx_data,
+            human_motion_data=retarget.scaled_human_data,
+            # human_motion_data=smplx_data,
             human_pos_offset=np.array([0.0, 0.0, 0.0]),
             show_human_body_name=False,
             rate_limit=args.rate_limit,
@@ -148,7 +146,6 @@ if __name__ == "__main__":
         )
         if args.save_path is not None:
             qpos_list.append(qpos)
-        i += 1
             
     if args.save_path is not None:
         import pickle
